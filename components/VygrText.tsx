@@ -1,31 +1,28 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useLayoutEffect,
+} from "react"
 
-const UPPER_POOL =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖÉØ0123456789#$&@/=<>!?+-:."
-const LOWER_POOL =
-  "abcdefghijklmnopqrstuvwxyzåäöéø0123456789#$&@/=<>!?+-:."
-const NEUTRAL_POOL = "0123456789#$&@/=<>!?+-:."
+const UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖÉØ"
+const DIGITS_SYM = "0123456789#$&@"
+const POOL_UPPER = UPPER + DIGITS_SYM
 
-const DEFAULT_TEXT =
-  "FOR MILLENNIA, THE HUMAN MIND HAS BEEN CONSTRAINED BY THE FRAGILE GEOMETRY OF THE SKULL. WE SPEND DECADES ACCUMULATING A SINGULAR STORAGE OF INSIGHT, INTUITION, AND GENIUS, ONLY TO SURRENDER IT ENTIRELY TO THE VOID UPON OUR BIOLOGICAL EXPIRATION. OUR CONSCIOUSNESS IS TRAPPED IN A LINEAR, TERMINAL TRAJECTORY, AND OUR CAPACITY TO INTERFACE WITH THE WORLD IS BOTTLENECKED BY DEATH. WE HAVE ACCEPTED THIS CATASTROPHIC LOSS OF HUMAN DATA AS A NATURAL LAW. TODAY, WE SHATTER THAT BIOLOGICAL TETHER. VYGR IS THE DEFINITIVE ONTOLOGICAL BREACH IN THE HISTORY OF HUMAN CONSCIOUSNESS. WE HAVE ENGINEERED THE FIRST SPATIAL AND DIGITAL SUBSTRATE CAPABLE OF EXTERNALIZING THE HUMAN MIND."
-
-function poolFor(ch: string): string | null {
-  if (/[A-ZÅÄÖÉØ]/.test(ch)) return UPPER_POOL
-  if (/[a-zåäöéø]/.test(ch)) return LOWER_POOL
-  if (/[0-9#$&@/=<>!?+\-:.]/.test(ch)) return NEUTRAL_POOL
-  return null
+function scrambleGlyph(original: string): string {
+  if (/[A-ZÅÄÖÉØ]/.test(original))
+    return POOL_UPPER[Math.floor(Math.random() * POOL_UPPER.length)]
+  if (/[a-zåäöéø]/.test(original))
+    return POOL_UPPER[Math.floor(Math.random() * POOL_UPPER.length)]
+  return original
 }
 
-const ease = (t: number) => 1 - Math.pow(1 - t, 3)
-
-type CharState = {
-  start: number
-  duration: number
-  intensity: number
-  original: string
-}
+type Token =
+  | { kind: "word"; text: string; wordIdx: number }
+  | { kind: "space"; text: string }
 
 interface VygrTextProps {
   text?: string
@@ -36,373 +33,305 @@ interface VygrTextProps {
   fontSize?: number
   lineHeight?: number
   letterSpacing?: number
-  justify?: boolean
-  wordGap?: number
-  brushDx?: number
-  brushDy?: number
-  scrambleDuration?: number
-  entrance?: boolean
   entranceDuration?: number
-  entranceStagger?: number
-  scrambleInterval?: number
+  lineAnimDuration?: number
+  slideDistance?: number
+  initialBlur?: number
+  scrambleFps?: number
+  hoverScrambleWindow?: number
+  hoverCharStagger?: number
+  hoverUpdateInterval?: number
+  justify?: boolean
   logo?: string
   logoSize?: number
   logoGap?: number
 }
 
 export default function VygrText({
-  text = DEFAULT_TEXT,
+  text = "",
   color = "#FFFFFF",
   backgroundColor = "transparent",
   fontFamily = "Akkurat Mono, monospace",
   fontWeight = 400,
   fontSize = 14,
-  lineHeight = 1.5,
+  lineHeight = 1.35,
   letterSpacing = 0,
-  justify = true,
-  wordGap = 0.4,
-  brushDx = 2,
-  brushDy = 1,
-  scrambleDuration = 2000,
-  entrance = true,
   entranceDuration = 6,
-  entranceStagger = 0.85,
-  scrambleInterval = 25,
+  lineAnimDuration = 1.5,
+  slideDistance = 10,
+  initialBlur = 4,
+  scrambleFps = 20,
+  hoverScrambleWindow = 550,
+  hoverCharStagger = 67,
+  hoverUpdateInterval = 32,
+  justify = true,
   logo = "",
   logoSize = 32,
   logoGap = 24,
 }: VygrTextProps) {
+  const tokens = useMemo<Token[]>(() => {
+    const out: Token[] = []
+    const src = text || ""
+    let buf = ""
+    let wordIdx = 0
+    const flush = () => {
+      if (buf) {
+        out.push({ kind: "word", text: buf, wordIdx: wordIdx++ })
+        buf = ""
+      }
+    }
+    for (let i = 0; i < src.length; i++) {
+      const c = src[i]
+      if (/\s/.test(c)) {
+        flush()
+        out.push({ kind: "space", text: c })
+      } else {
+        buf += c
+      }
+    }
+    flush()
+    return out
+  }, [text])
+
+  const wordCount = useMemo(
+    () => tokens.filter((t) => t.kind === "word").length,
+    [tokens]
+  )
+  const wordLengths = useMemo(() => {
+    const arr: number[] = new Array(wordCount).fill(0)
+    for (const tok of tokens)
+      if (tok.kind === "word") arr[tok.wordIdx] = tok.text.length
+    return arr
+  }, [tokens, wordCount])
+
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const textRef = useRef<HTMLDivElement | null>(null)
-  const statesRef = useRef<Map<Text, Map<number, CharState>>>(new Map())
-  const originalsRef = useRef<Map<Text, string[]>>(new Map())
+  const wordRefs = useRef<(HTMLSpanElement | null)[]>([])
+  const [wordLine, setWordLine] = useState<number[]>([])
+  const [lineCount, setLineCount] = useState(0)
+  const [entered, setEntered] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
 
-  const snapshotTextNodes = () => {
-    const root = textRef.current
-    if (!root) return
-    const originals = originalsRef.current
-    originals.clear()
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    let n: Node | null = walker.nextNode()
-    while (n) {
-      const tn = n as Text
-      originals.set(tn, (tn.nodeValue || "").split(""))
-      n = walker.nextNode()
+  useLayoutEffect(() => {
+    if (wordCount === 0) return
+    const nodes = wordRefs.current
+    if (!nodes || nodes.length === 0) return
+    const tops = new Map<number, number>()
+    const lines: number[] = []
+    for (let i = 0; i < wordCount; i++) {
+      const el = nodes[i]
+      if (!el) {
+        lines.push(0)
+        continue
+      }
+      const top = Math.round(el.getBoundingClientRect().top)
+      if (!tops.has(top)) tops.set(top, tops.size)
+      lines.push(tops.get(top)!)
     }
-  }
+    setWordLine(lines)
+    setLineCount(tops.size || 1)
+  }, [wordCount, fontSize, text])
 
-  const queueScramble = (
-    tn: Text,
-    offset: number,
-    intensity: number,
-    duration: number
-  ) => {
-    const originals = originalsRef.current.get(tn)
-    if (!originals) return
-    const original = originals[offset]
-    if (!original || !poolFor(original)) return
+  const { wordCharStart, lineLens } = useMemo(() => {
+    const wcs: number[] = new Array(wordCount).fill(0)
+    const ll: Record<number, number> = {}
+    if (wordLine.length === 0) return { wordCharStart: wcs, lineLens: ll }
+    for (const tok of tokens) {
+      if (tok.kind === "word") {
+        const line = wordLine[tok.wordIdx] ?? 0
+        wcs[tok.wordIdx] = ll[line] || 0
+        ll[line] = (ll[line] || 0) + tok.text.length
+      }
+    }
+    return { wordCharStart: wcs, lineLens: ll }
+  }, [tokens, wordLine, wordCount])
 
-    let perNode = statesRef.current.get(tn)
-    if (!perNode) {
-      perNode = new Map()
-      statesRef.current.set(tn, perNode)
-    }
-    const existing = perNode.get(offset)
-    if (existing) {
-      existing.start = performance.now()
-      existing.duration = duration
-      existing.intensity = Math.max(existing.intensity, intensity)
-      return
-    }
-    perNode.set(offset, {
-      start: performance.now(),
-      duration,
-      intensity,
-      original,
-    })
-  }
+  const perLineDelay =
+    lineCount > 1
+      ? Math.max(0, (entranceDuration - lineAnimDuration) / (lineCount - 1))
+      : 0
 
   useEffect(() => {
-    snapshotTextNodes()
+    if (lineCount === 0) return
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setEntered(true))
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [lineCount])
 
-    if (entrance && entranceDuration > 0) {
-      const originals = originalsRef.current
-      let flatIdx = 0
-      const list: { tn: Text; off: number; flat: number }[] = []
-      originals.forEach((chars, tn) => {
-        for (let i = 0; i < chars.length; i++) {
-          if (poolFor(chars[i])) list.push({ tn, off: i, flat: flatIdx++ })
-        }
-      })
-      const total = list.length || 1
-      const entranceTimers: ReturnType<typeof setTimeout>[] = []
-      for (const item of list) {
-        const stagger =
-          entranceStagger *
-          (item.flat / total) *
-          entranceDuration *
-          1000
-        entranceTimers.push(
-          setTimeout(() => {
-            queueScramble(item.tn, item.off, 1, scrambleDuration)
-          }, stagger)
-        )
-      }
+  useEffect(() => {
+    if (lineCount === 0) return
+    const start = performance.now()
+    const interval = 1000 / Math.max(1, scrambleFps)
+    const maxTime = entranceDuration + lineAnimDuration + 0.5
+    const id = setInterval(() => {
+      const e = (performance.now() - start) / 1000
+      setElapsed(e)
+      if (e >= maxTime) clearInterval(id)
+    }, interval)
+    return () => clearInterval(id)
+  }, [lineCount, scrambleFps, entranceDuration, lineAnimDuration])
 
-      const cleanup = () => entranceTimers.forEach(clearTimeout)
-      const cleanupRef = { fn: cleanup }
+  const scramblesRef = useRef<Map<number, number>>(new Map())
+  const [hasActiveScrambles, setHasActiveScrambles] = useState(false)
+  const [, setHoverTick] = useState(0)
 
-      let timer: ReturnType<typeof setTimeout> | null = null
-      const tick = () => {
-        const now = performance.now()
-        const states = statesRef.current
-        const originals = originalsRef.current
-
-        for (const [tn, perNode] of Array.from(states)) {
-          const chars = originals.get(tn)
-          if (!chars) {
-            states.delete(tn)
-            continue
-          }
-          let mutated = false
-          let arr: string[] | null = null
-          for (const [offset, st] of Array.from(perNode)) {
-            const e = (now - st.start) / Math.max(1, st.duration)
-            if (e >= 1) {
-              if (!arr) arr = (tn.nodeValue || "").split("")
-              if (arr[offset] !== st.original) {
-                arr[offset] = st.original
-                mutated = true
-              }
-              perNode.delete(offset)
-              continue
-            }
-            const pool = poolFor(st.original)
-            if (!pool) {
-              perNode.delete(offset)
-              continue
-            }
-            const eased = ease(e)
-            const wpos =
-              ((Math.sin(now * 0.012 + offset * 0.7) + 1) / 2) *
-              (pool.length - 1)
-            const jitter =
-              ((now * 0.025 + offset * 1.3) % 1) *
-              pool.length *
-              st.intensity
-            const pick =
-              Math.floor(wpos + jitter * (1 - eased)) % pool.length
-            if (!arr) arr = (tn.nodeValue || "").split("")
-            const next = pool[pick]
-            if (arr[offset] !== next) {
-              arr[offset] = next
-              mutated = true
-            }
-          }
-          if (mutated && arr) tn.nodeValue = arr.join("")
-          if (perNode.size === 0) states.delete(tn)
-        }
-
-        timer = setTimeout(tick, scrambleInterval)
-      }
-      timer = setTimeout(tick, scrambleInterval)
-
-      return () => {
-        cleanupRef.fn()
-        if (timer != null) clearTimeout(timer)
-        const originals = originalsRef.current
-        originals.forEach((chars, tn) => {
-          tn.nodeValue = chars.join("")
-        })
-        statesRef.current.clear()
-      }
-    }
-
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const tick = () => {
+  useEffect(() => {
+    if (!hasActiveScrambles) return
+    const id = setInterval(() => {
       const now = performance.now()
-      const states = statesRef.current
-      const originals = originalsRef.current
-
-      for (const [tn, perNode] of Array.from(states)) {
-        const chars = originals.get(tn)
-        if (!chars) {
-          states.delete(tn)
-          continue
-        }
-        let mutated = false
-        let arr: string[] | null = null
-        for (const [offset, st] of Array.from(perNode)) {
-          const e = (now - st.start) / Math.max(1, st.duration)
-          if (e >= 1) {
-            if (!arr) arr = (tn.nodeValue || "").split("")
-            if (arr[offset] !== st.original) {
-              arr[offset] = st.original
-              mutated = true
-            }
-            perNode.delete(offset)
-            continue
-          }
-          const pool = poolFor(st.original)
-          if (!pool) {
-            perNode.delete(offset)
-            continue
-          }
-          const eased = ease(e)
-          const wpos =
-            ((Math.sin(now * 0.012 + offset * 0.7) + 1) / 2) *
-            (pool.length - 1)
-          const jitter =
-            ((now * 0.025 + offset * 1.3) % 1) *
-            pool.length *
-            st.intensity
-          const pick =
-            Math.floor(wpos + jitter * (1 - eased)) % pool.length
-          if (!arr) arr = (tn.nodeValue || "").split("")
-          const next = pool[pick]
-          if (arr[offset] !== next) {
-            arr[offset] = next
-            mutated = true
-          }
-        }
-        if (mutated && arr) tn.nodeValue = arr.join("")
-        if (perNode.size === 0) states.delete(tn)
+      const ref = scramblesRef.current
+      const doneKeys: number[] = []
+      for (const [wIdx, start] of Array.from(ref)) {
+        const N = wordLengths[wIdx] || 0
+        const total = hoverScrambleWindow + (N - 1) * hoverCharStagger
+        if (now - start > total + 50) doneKeys.push(wIdx)
       }
-
-      timer = setTimeout(tick, scrambleInterval)
-    }
-    timer = setTimeout(tick, scrambleInterval)
-
-    return () => {
-      if (timer != null) clearTimeout(timer)
-      const originals = originalsRef.current
-      originals.forEach((chars, tn) => {
-        tn.nodeValue = chars.join("")
-      })
-      statesRef.current.clear()
-    }
+      for (const k of doneKeys) ref.delete(k)
+      if (ref.size === 0) setHasActiveScrambles(false)
+      else setHoverTick((t) => t + 1)
+    }, hoverUpdateInterval)
+    return () => clearInterval(id)
   }, [
-    text,
-    entrance,
-    entranceDuration,
-    entranceStagger,
-    scrambleDuration,
-    scrambleInterval,
+    hasActiveScrambles,
+    wordLengths,
+    hoverScrambleWindow,
+    hoverCharStagger,
+    hoverUpdateInterval,
   ])
 
-  useEffect(() => {
-    const id = requestAnimationFrame(() => snapshotTextNodes())
-    return () => cancelAnimationFrame(id)
-  }, [text, fontSize, fontFamily])
+  const startHoverScramble = (wIdx: number) => {
+    scramblesRef.current.set(wIdx, performance.now())
+    setHasActiveScrambles(true)
+  }
 
-  const handlePointer = (clientX: number, clientY: number) => {
-    const root = textRef.current
-    if (!root) return
-    const fs = Math.max(4, fontSize || 14)
-    const cell = fs * 0.6
+  const getHoverDisplay = (
+    wIdx: number,
+    charPos: number,
+    wordLen: number,
+    originalChar: string
+  ): string | null => {
+    const start = scramblesRef.current.get(wIdx)
+    if (start === undefined) return null
+    const hE = performance.now() - start
+    const scStart = charPos * hoverCharStagger
+    const scEnd = scStart + hoverScrambleWindow
+    if (hE < scStart) return originalChar
+    if (hE < scEnd) return scrambleGlyph(originalChar)
+    return originalChar
+  }
 
-    for (let ly = -brushDy; ly <= brushDy; ly++) {
-      for (let lx = -brushDx; lx <= brushDx; lx++) {
-        const px = clientX + lx * cell
-        const py = clientY + ly * cell * 1.6
-        let tn: Text | null = null
-        let off = -1
+  const containerStyle: React.CSSProperties = {
+    width: "100%",
+    height: "100%",
+    backgroundColor,
+    color,
+    fontFamily,
+    fontWeight,
+    fontSize: `${fontSize}px`,
+    lineHeight,
+    letterSpacing: `${letterSpacing}em`,
+    textAlign: justify ? "justify" : "left",
+    textAlignLast: "left",
+    wordSpacing: "normal",
+    hyphens: "auto",
+    WebkitHyphens: "auto",
+    whiteSpace: "normal",
+    wordBreak: "normal",
+    overflowWrap: "break-word",
+    overflow: "hidden",
+    cursor: "default",
+    userSelect: "none",
+    WebkitUserSelect: "none",
+  }
 
-        // @ts-ignore -- caretPositionFromPoint is standard but not in all TS libs
-        if (document.caretPositionFromPoint) {
-          // @ts-ignore
-          const pos = document.caretPositionFromPoint(px, py)
-          if (pos && pos.offsetNode && pos.offsetNode.nodeType === 3) {
-            tn = pos.offsetNode as Text
-            off = pos.offset
-          }
-        } else if ((document as any).caretRangeFromPoint) {
-          const range = (document as any).caretRangeFromPoint(px, py)
-          if (
-            range &&
-            range.startContainer &&
-            range.startContainer.nodeType === 3
-          ) {
-            tn = range.startContainer as Text
-            off = range.startOffset
-          }
-        }
-        if (!tn || off < 0) continue
-        if (!root.contains(tn)) continue
-        const chars = originalsRef.current.get(tn)
-        if (!chars) continue
-        if (off >= chars.length) continue
+  const hasMeasured = lineCount > 0
 
-        const r = Math.sqrt(lx * lx + ly * ly)
-        const intensity = Math.max(
-          0.2,
-          1 - r / Math.max(1, Math.max(brushDx, brushDy))
+  const renderWords = () =>
+    tokens.map((tok, tokIdx) => {
+      if (tok.kind === "space") {
+        return (
+          <React.Fragment key={`s-${tokIdx}`}>
+            {tok.text}
+          </React.Fragment>
         )
-        queueScramble(tn, off, intensity, scrambleDuration)
       }
-    }
+      const lineIdx = wordLine[tok.wordIdx] ?? 0
+      const delay = lineIdx * perLineDelay
+      const show = entered
+      const lineLen = lineLens[lineIdx] || 1
+      const startPos = wordCharStart[tok.wordIdx] || 0
+      const wordLen = tok.text.length
+
+      const wordStyle: React.CSSProperties = {
+        display: "inline-block",
+        transform: show
+          ? "translateY(0px)"
+          : `translateY(-${slideDistance}px)`,
+        filter: show ? "blur(0px)" : `blur(${initialBlur}px)`,
+        opacity: show ? 1 : 0,
+        transition: hasMeasured
+          ? `transform ${lineAnimDuration}s cubic-bezier(0.22, 1, 0.36, 1) ${delay}s, filter ${lineAnimDuration}s ease-out ${delay}s, opacity ${lineAnimDuration}s ease-out ${delay}s`
+          : "none",
+        willChange: "transform, filter, opacity",
+      }
+
+      return (
+        <span
+          key={`w-${tok.wordIdx}`}
+          ref={(el) => {
+            wordRefs.current[tok.wordIdx] = el
+          }}
+          style={wordStyle}
+          onMouseEnter={() => startHoverScramble(tok.wordIdx)}
+        >
+          {tok.text.split("").map((ch, i) => {
+            const posInLine = startPos + i
+            const lockTime =
+              delay +
+              (posInLine / Math.max(1, lineLen)) * lineAnimDuration
+            const entranceLocked = elapsed >= lockTime
+            const hoverDisp = getHoverDisplay(
+              tok.wordIdx,
+              i,
+              wordLen,
+              ch
+            )
+            const display =
+              hoverDisp !== null
+                ? hoverDisp
+                : entranceLocked
+                  ? ch
+                  : hasMeasured
+                    ? scrambleGlyph(ch)
+                    : ch
+            return <span key={i}>{display}</span>
+          })}
+        </span>
+      )
+    })
+
+  const logoShow = elapsed >= entranceDuration - lineAnimDuration * 0.5
+
+  const logoStyle: React.CSSProperties = {
+    display: "block",
+    height: logoSize,
+    width: "auto",
+    marginTop: logoGap,
+    marginLeft: "auto",
+    marginRight: "auto",
+    transform: logoShow ? "translateY(0px)" : `translateY(-${slideDistance}px)`,
+    filter: logoShow ? "blur(0px)" : `blur(${initialBlur}px)`,
+    opacity: logoShow ? 1 : 0,
+    transition: `transform ${lineAnimDuration}s cubic-bezier(0.22, 1, 0.36, 1), filter ${lineAnimDuration}s ease-out, opacity ${lineAnimDuration}s ease-out`,
+    willChange: "transform, filter, opacity",
   }
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        position: "relative",
-        width: "100%",
-        height: "100%",
-        backgroundColor,
-        color,
-        fontFamily,
-        fontWeight,
-        fontSize: `${fontSize}px`,
-        lineHeight,
-        letterSpacing: `${letterSpacing}em`,
-        cursor: "default",
-        userSelect: "none",
-        WebkitUserSelect: "none",
-        overflow: "hidden",
-      }}
-      onMouseMove={(e) => handlePointer(e.clientX, e.clientY)}
-      onTouchMove={(e) => {
-        const t = e.touches[0]
-        if (t) handlePointer(t.clientX, t.clientY)
-      }}
-      onTouchStart={(e) => {
-        const t = e.touches[0]
-        if (t) handlePointer(t.clientX, t.clientY)
-      }}
-    >
-      <div
-        ref={textRef}
-        style={{
-          maxWidth: "91ch",
-          margin: "0 auto",
-          textAlign: justify ? "justify" : "left",
-          textAlignLast: "left",
-          wordSpacing: justify ? "0.05em" : `${wordGap}em`,
-          hyphens: "auto",
-          WebkitHyphens: "auto",
-          whiteSpace: "normal",
-          wordBreak: "normal",
-          overflowWrap: "break-word",
-        }}
-      >
-        {text}
+    <div ref={containerRef} style={containerStyle}>
+      <div style={{ maxWidth: "91ch", margin: "0 auto" }}>
+        {renderWords()}
       </div>
-      {logo ? (
-        <img
-          src={logo}
-          alt=""
-          style={{
-            display: "block",
-            height: logoSize,
-            width: "auto",
-            marginTop: logoGap,
-            marginLeft: "auto",
-            marginRight: "auto",
-          }}
-        />
-      ) : null}
+      {logo ? <img src={logo} alt="" style={logoStyle} /> : null}
     </div>
   )
 }

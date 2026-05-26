@@ -10,9 +10,10 @@ const MANIFESTO =
 export default function Home() {
   const [phase, setPhase] = useState<"intro" | "text">("intro")
 
-  const handleComplete = useCallback(() => {
+  const handleReveal = useCallback(() => {
+    if (phase !== "intro") return
     setPhase("text")
-  }, [])
+  }, [phase])
 
   return (
     <main
@@ -29,14 +30,15 @@ export default function Home() {
           position: "absolute",
           inset: 0,
           opacity: phase === "text" ? 0 : 1,
-          transition: "opacity 0.3s ease",
+          transition: "opacity 0.8s ease",
           pointerEvents: phase === "text" ? "none" : "auto",
         }}
+        onClick={handleReveal}
+        onTouchStart={handleReveal}
       >
         <VygrIntro
-          onComplete={handleComplete}
           text={MANIFESTO}
-          firstClickShape="text"
+          firstClickShape="none"
           explodeSpread={0}
           revealDuration={2.5}
           pointerInfluence={0.8}
@@ -52,42 +54,27 @@ export default function Home() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            flexDirection: "column",
           }}
         >
           <div style={{ width: 764, maxWidth: "90vw" }}>
             <VygrText
               text={MANIFESTO}
-              entrance={true}
-              entranceDuration={4}
-              entranceStagger={0.9}
-              scrambleDuration={1800}
               fontSize={14}
               lineHeight={1.35}
               color="#FFFFFF"
               backgroundColor="transparent"
+              entranceDuration={6}
+              lineAnimDuration={1.5}
+              slideDistance={10}
+              initialBlur={4}
+              scrambleFps={20}
+              logo="/filip-icon.svg"
+              logoSize={36}
+              logoGap={32}
             />
           </div>
-          <img
-            src="/filip-icon.svg"
-            alt=""
-            style={{
-              display: "block",
-              height: 36,
-              width: "auto",
-              marginTop: 32,
-              opacity: 0,
-              animation: "fadeIn 1s ease 3.5s forwards",
-            }}
-          />
         </div>
       )}
-
-      <style>{`
-        @keyframes fadeIn {
-          to { opacity: 1; }
-        }
-      `}</style>
     </main>
   )
 }
