@@ -763,7 +763,7 @@ export default function VygrIntro({
     }
 
     const triggerReveal = () => {
-      if (stateRef.current !== "idle") return
+      if (stateRef.current !== "idle" || fillRef.current < 0.95) return
       stateRef.current = "revealing"
       revealStartRef.current = performance.now()
       cursorTrailRef.current = []
@@ -893,34 +893,37 @@ export default function VygrIntro({
       } else if (stateRef.current === "revealing") {
         const revealElapsed =
           (now - revealStartRef.current) / 1000
-        const collapseDuration = 2.5
+        const collapseDuration = 2.0
         const collapse = Math.min(1, revealElapsed / collapseDuration)
         const eased = collapse * collapse * (3 - 2 * collapse)
 
-        const dynThreshold = cloudThreshold + eased * 0.8
+        const dynThreshold = cloudThreshold + eased * 1.2
+        const dynFill = fillRef.current * (1 - eased)
 
-        const cloud = buildMurmurationPoints(
-          cols,
-          rows,
-          tNow * idleSpeed,
-          0.5,
-          0.5,
-          dynThreshold,
-          cloudRamp === "band" ? RAMP_BAND : RAMP,
-          fillRef.current,
-          0.5,
-          0.5,
-          0
-        )
+        if (collapse < 1) {
+          const cloud = buildMurmurationPoints(
+            cols,
+            rows,
+            tNow * idleSpeed,
+            0.5,
+            0.5,
+            dynThreshold,
+            cloudRamp === "band" ? RAMP_BAND : RAMP,
+            dynFill,
+            0.5,
+            0.5,
+            0
+          )
 
-        for (let i = 0; i < cloud.length; i++) {
-          cloud[i].x = lerp(cloud[i].x, 0.5, eased * 0.6)
-          cloud[i].y = lerp(cloud[i].y, 0.5, eased * 0.6)
+          for (let i = 0; i < cloud.length; i++) {
+            cloud[i].x = lerp(cloud[i].x, 0.5, eased * 0.7)
+            cloud[i].y = lerp(cloud[i].y, 0.5, eased * 0.7)
+          }
+
+          layers.push(cloud)
         }
 
-        layers.push(cloud)
-
-        if (collapse >= 1 && cloud.length === 0) {
+        if (collapse >= 1) {
           stateRef.current = "revealed"
           if (typeof onComplete === "function") onComplete()
         }
