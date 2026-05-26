@@ -829,11 +829,11 @@ export default function VygrIntro({
 
       const ec = easedCursorRef.current
       if (pointerRef.current.active) {
-        ec.x += (pointerRef.current.x - ec.x) * 0.08
-        ec.y += (pointerRef.current.y - ec.y) * 0.08
+        ec.x += (pointerRef.current.x - ec.x) * 0.04
+        ec.y += (pointerRef.current.y - ec.y) * 0.04
       } else {
-        ec.x += (0.5 - ec.x) * 0.03
-        ec.y += (0.5 - ec.y) * 0.03
+        ec.x += (0.5 - ec.x) * 0.02
+        ec.y += (0.5 - ec.y) * 0.02
       }
 
       const layers: Point[][] = []

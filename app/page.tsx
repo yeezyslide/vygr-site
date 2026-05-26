@@ -60,6 +60,7 @@ export default function Home() {
           explodeSpread={0}
           revealDuration={2.5}
           pointerInfluence={0.8}
+          cursorRepel={0.18}
           cloudThreshold={0.35}
           backgroundColor="transparent"
         />
