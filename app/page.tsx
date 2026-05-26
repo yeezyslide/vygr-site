@@ -84,14 +84,9 @@ export default function Home() {
 
       <style>{`
         .vygr-text-container {
-          width: 1200px;
+          width: 810px;
           max-width: 100%;
           padding: 0;
-        }
-        @media (max-width: 1200px) {
-          .vygr-text-container {
-            width: 810px;
-          }
         }
         @media (max-width: 810px) {
           .vygr-text-container {
