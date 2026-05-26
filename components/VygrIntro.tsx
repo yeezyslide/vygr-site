@@ -707,6 +707,7 @@ export default function VygrIntro({
   const startTimeRef = useRef<number>(0)
   const fillRef = useRef<number>(0)
   const cursorTrailRef = useRef<{ x: number; y: number }[]>([])
+  const easedCursorRef = useRef<{ x: number; y: number }>({ x: 0.5, y: 0.5 })
   const hintRef = useRef<HTMLDivElement | null>(null)
   const hintCharsRef = useRef<HTMLSpanElement[]>([])
   const hintActiveRef = useRef(false)
@@ -826,6 +827,15 @@ export default function VygrIntro({
 
       const tNow = (now - startTimeRef.current) / 1000
 
+      const ec = easedCursorRef.current
+      if (pointerRef.current.active) {
+        ec.x += (pointerRef.current.x - ec.x) * 0.08
+        ec.y += (pointerRef.current.y - ec.y) * 0.08
+      } else {
+        ec.x += (0.5 - ec.x) * 0.03
+        ec.y += (0.5 - ec.y) * 0.03
+      }
+
       const layers: Point[][] = []
       if (stateRef.current === "idle") {
         const cloud = buildMurmurationPoints(
@@ -837,8 +847,8 @@ export default function VygrIntro({
           cloudThreshold,
           cloudRamp === "band" ? RAMP_BAND : RAMP,
           fillRef.current,
-          pointerRef.current.x,
-          pointerRef.current.y,
+          ec.x,
+          ec.y,
           pointerRef.current.active ? cursorRepel : 0
         )
         layers.push(cloud)
