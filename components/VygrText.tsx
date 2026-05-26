@@ -231,7 +231,7 @@ export default function VygrText({
     lineHeight,
     letterSpacing: `${letterSpacing}em`,
     textAlign: justify ? "justify" : "left",
-    textAlignLast: "left",
+    textAlignLast: justify ? "justify" : "left",
     wordSpacing: "normal",
     hyphens: "auto",
     WebkitHyphens: "auto",

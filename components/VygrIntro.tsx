@@ -201,7 +201,8 @@ const buildMurmurationPoints = (
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const b = murmurationField(c, r, cols, rows, t, mx, my)
-      let beff = b + (1 - fill)
+      const cellShimmer = Math.sin(c * 13.7 + r * 7.3 + t * 3) * 0.08
+      let beff = b * fill + cellShimmer * fill
       if (cursorRepel > 0) {
         const ndx = c / cols - cursorX
         const ndy = r / rows - cursorY
@@ -745,7 +746,7 @@ export default function VygrIntro({
 
     const entranceTimer = setInterval(() => {
       const e = (performance.now() - startTimeRef.current) / 1000
-      const ramp = Math.min(1, e / 3)
+      const ramp = Math.min(1, e / 4.5)
       fillRef.current = easeInOutCubic(ramp)
       if (ramp >= 1) clearInterval(entranceTimer)
     }, 32)
