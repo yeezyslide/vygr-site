@@ -375,7 +375,7 @@ export default function VygrText({
       <div
         ref={textRef}
         style={{
-          maxWidth: "60ch",
+          maxWidth: "91ch",
           margin: "0 auto",
           textAlign: justify ? "justify" : "left",
           textAlignLast: "left",
