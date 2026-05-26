@@ -50,20 +50,23 @@ export default function Home() {
 
       {phase === "text" && (
         <div
-          className="text-reveal"
           style={{
             position: "absolute",
             inset: 0,
-            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
             zIndex: 1,
           }}
         >
-          <div className="text-container">
+          <div className="vygr-text-container">
             <VygrText
               text={MANIFESTO}
-              fontSize={14}
-              lineHeight={1.4}
-              letterSpacing={0.02}
+              fontSize={13}
+              fontWeight={500}
+              lineHeight={1.5}
+              letterSpacing={-0.026}
               color="#FFFFFF"
               backgroundColor="transparent"
               entranceDuration={6}
@@ -72,24 +75,32 @@ export default function Home() {
               initialBlur={4}
               scrambleFps={20}
               logo="/filip-icon.svg"
-              logoSize={36}
-              logoGap={32}
+              logoSize={30}
+              logoGap={24}
             />
           </div>
         </div>
       )}
 
       <style>{`
-        .text-container {
-          padding: 12vh 5vw 10vh;
+        .vygr-text-container {
+          width: 1200px;
+          max-width: 100%;
+          padding: 0;
         }
-        .text-container > div {
-          max-width: none !important;
-          margin: 0 !important;
+        @media (max-width: 1200px) {
+          .vygr-text-container {
+            width: 810px;
+          }
         }
-        @media (max-width: 768px) {
-          .text-container {
-            padding: 8vh 6vw 10vh;
+        @media (max-width: 810px) {
+          .vygr-text-container {
+            width: 390px;
+          }
+          .vygr-text-container > div {
+            font-size: 12.5px !important;
+            line-height: 1.3 !important;
+            letter-spacing: 0em !important;
           }
         }
       `}</style>
