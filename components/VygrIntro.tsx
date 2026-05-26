@@ -697,6 +697,7 @@ export default function VygrIntro({
   const startTimeRef = useRef<number>(0)
   const fillRef = useRef<number>(0)
   const cursorTrailRef = useRef<{ x: number; y: number }[]>([])
+  const hintRef = useRef<HTMLDivElement | null>(null)
 
   const measure = () => {
     const cont = containerRef.current
@@ -751,6 +752,7 @@ export default function VygrIntro({
       if (stateRef.current !== "idle") return
       stateRef.current = "revealing"
       cursorTrailRef.current = []
+      if (hintRef.current) hintRef.current.style.opacity = "0"
       if (autoRevealTimer != null) {
         clearTimeout(autoRevealTimer)
         autoRevealTimer = null
@@ -945,19 +947,15 @@ export default function VygrIntro({
         const ty = pointerRef.current.active
           ? Math.min(0.92, pointerRef.current.y + 0.08)
           : 0.88
-        trail[0].x += (tx - trail[0].x) * 0.08
-        trail[0].y += (ty - trail[0].y) * 0.08
+        trail[0].x += (tx - trail[0].x) * 0.1
+        trail[0].y += (ty - trail[0].y) * 0.1
 
-        if (showHints && hintText) {
-          layers.push(
-            buildTrailingHintPoints(
-              hintText,
-              trail[0].x,
-              trail[0].y,
-              cols,
-              rows
-            )
-          )
+        if (hintRef.current && cont) {
+          const rect = cont.getBoundingClientRect()
+          const hx = trail[0].x * rect.width
+          const hy = trail[0].y * rect.height
+          hintRef.current.style.transform =
+            `translate3d(${hx}px, ${hy}px, 0) translate(-50%, -50%)`
         }
       }
 
@@ -1043,6 +1041,29 @@ export default function VygrIntro({
           pointerEvents: "none",
         }}
       />
+      {showHints && hintText && (
+        <div
+          ref={hintRef}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            fontFamily,
+            fontWeight,
+            fontSize: `${fontSize}px`,
+            lineHeight,
+            letterSpacing: 0,
+            whiteSpace: "pre",
+            pointerEvents: "none",
+            willChange: "transform",
+            color,
+            opacity: 1,
+            transition: "opacity 0.4s ease",
+          }}
+        >
+          {hintText}
+        </div>
+      )}
     </div>
   )
 }
