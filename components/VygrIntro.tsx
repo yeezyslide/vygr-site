@@ -708,6 +708,8 @@ export default function VygrIntro({
   const fillRef = useRef<number>(0)
   const cursorTrailRef = useRef<{ x: number; y: number }[]>([])
   const hintRef = useRef<HTMLDivElement | null>(null)
+  const hintCharsRef = useRef<HTMLSpanElement[]>([])
+  const hintActiveRef = useRef(false)
   const revealStartRef = useRef<number>(0)
 
   const measure = () => {
@@ -858,15 +860,34 @@ export default function VygrIntro({
           const hy = trail[0].y * rect.height
           hintRef.current.style.transform =
             `translate3d(${hx}px, ${hy}px, 0) translate(-50%, -50%)`
+          const fill = fillRef.current
+          if (fill > 0.6 && !hintActiveRef.current) {
+            hintActiveRef.current = true
+            hintRef.current.style.opacity = "1"
+          }
+          if (hintActiveRef.current) {
+            const elapsed = fill - 0.6
+            const pool = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!?<>=+-/:."
+            const chars = hintText.split("")
+            let out = ""
+            for (let ci = 0; ci < chars.length; ci++) {
+              const lockAt = ci * 0.02
+              if (chars[ci] === " ") out += " "
+              else if (elapsed > lockAt + 0.12) out += chars[ci]
+              else if (elapsed > lockAt) out += pool[Math.floor(Math.random() * pool.length)]
+              else out += " "
+            }
+            hintRef.current.textContent = out
+          }
         }
       } else if (stateRef.current === "revealing") {
         const revealElapsed =
           (now - revealStartRef.current) / 1000
-        const collapseDuration = 1.8
+        const collapseDuration = 2.5
         const collapse = Math.min(1, revealElapsed / collapseDuration)
         const eased = collapse * collapse * (3 - 2 * collapse)
 
-        const dynThreshold = cloudThreshold + eased * 0.7
+        const dynThreshold = cloudThreshold + eased * 0.8
 
         const cloud = buildMurmurationPoints(
           cols,
@@ -889,7 +910,7 @@ export default function VygrIntro({
 
         layers.push(cloud)
 
-        if (collapse >= 1) {
+        if (collapse >= 1 && cloud.length === 0) {
           stateRef.current = "revealed"
           if (typeof onComplete === "function") onComplete()
         }
@@ -940,6 +961,7 @@ export default function VygrIntro({
     onComplete,
   ])
 
+
   return (
     <div
       ref={containerRef}
@@ -988,12 +1010,10 @@ export default function VygrIntro({
             pointerEvents: "none",
             willChange: "transform",
             color,
-            opacity: 1,
-            transition: "opacity 0.4s ease",
+            opacity: 0,
+            transition: "opacity 0.3s ease",
           }}
-        >
-          {hintText}
-        </div>
+        />
       )}
     </div>
   )
