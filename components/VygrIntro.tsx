@@ -186,7 +186,8 @@ const buildMurmurationPoints = (
   fill: number,
   cursorX = 0.5,
   cursorY = 0.5,
-  cursorRepel = 0
+  cursorRepel = 0,
+  overrideChar = ""
 ): Point[] => {
   const out: Point[] = []
   for (let r = 0; r < rows; r++) {
@@ -205,7 +206,7 @@ const buildMurmurationPoints = (
         }
       }
       if (beff < threshold) continue
-      const ch = charFromField(Math.min(1, beff), ramp)
+      const ch = overrideChar || charFromField(Math.min(1, beff), ramp)
       if (!ch || !ch.trim()) continue
       out.push(makePoint(c / cols, r / rows, ch, "field"))
     }
@@ -698,6 +699,7 @@ export default function VygrIntro({
   const fillRef = useRef<number>(0)
   const cursorTrailRef = useRef<{ x: number; y: number }[]>([])
   const hintRef = useRef<HTMLDivElement | null>(null)
+  const revealStartRef = useRef<number>(0)
 
   const measure = () => {
     const cont = containerRef.current
@@ -751,140 +753,13 @@ export default function VygrIntro({
     const triggerReveal = () => {
       if (stateRef.current !== "idle") return
       stateRef.current = "revealing"
+      revealStartRef.current = performance.now()
       cursorTrailRef.current = []
       if (hintRef.current) hintRef.current.style.opacity = "0"
       if (autoRevealTimer != null) {
         clearTimeout(autoRevealTimer)
         autoRevealTimer = null
       }
-      const { cols, rows } = dimsRef.current
-      const grid = gridRef.current
-      if (!grid) return
-
-      const tNow = (performance.now() - startTimeRef.current) / 1000
-      const snapshot = buildMurmurationPoints(
-        cols,
-        rows,
-        tNow * idleSpeed,
-        pointerRef.current.x,
-        pointerRef.current.y,
-        cloudThreshold,
-        cloudRamp === "band" ? RAMP_BAND : RAMP,
-        fillRef.current,
-        pointerRef.current.x,
-        pointerRef.current.y,
-        0
-      )
-      persistentRef.current = snapshot
-
-      if (explodeSpread > 0) {
-        explode(persistentRef.current, explodeSpread)
-        gravitate(persistentRef.current, gravityStrength * 0.3, 0.85)
-      }
-
-      setTimeout(() => {
-        if (firstClickShape === "none") {
-          setTimeout(() => {
-            stateRef.current = "revealed"
-            if (typeof onComplete === "function") onComplete()
-          }, 1800)
-          return
-        }
-
-        const buildShape = (name: string): Point[] => {
-          if (name === "diamond")
-            return buildShapePoints(cols, rows, diamondField, RAMP_BAND, 0.05)
-          if (name === "droplet")
-            return buildShapePoints(cols, rows, dropletField, RAMP_BAND, 0.05)
-          if (name === "column")
-            return buildShapePoints(cols, rows, columnField, RAMP_BAND, 0.05)
-          if (name === "text" || name === "manifesto") {
-            const width = Math.min(cols - 4, Math.max(20, paragraphWidth))
-            const col = Math.max(2, Math.floor((cols - width) / 2))
-            const upper = text.toUpperCase()
-            const words = upper.split(/\s+/).filter(Boolean)
-            let lineCount = 0
-            let lineLen = 0
-            for (const w of words) {
-              if (lineLen > 0 && lineLen + 1 + w.length > width) {
-                lineCount++
-                lineLen = w.length
-              } else {
-                lineLen += (lineLen > 0 ? 1 : 0) + w.length
-              }
-            }
-            if (lineLen > 0) lineCount++
-            const iconGap = 3
-            const iconHeight = 2
-            const totalHeight = lineCount + iconGap + iconHeight
-            const row = Math.max(1, Math.floor((rows - totalHeight) / 2))
-            const pts = buildParagraphPoints(
-              text,
-              col,
-              row,
-              width,
-              cols,
-              rows,
-              paragraphAlign,
-              "text"
-            )
-            const iconChars = "[-O-]"
-            const iconCol = Math.floor((cols - iconChars.length) / 2)
-            const iconRow = row + lineCount + iconGap
-            for (let j = 0; j < iconChars.length; j++) {
-              const ch = iconChars[j]
-              if (ch && ch.trim())
-                pts.push(makePoint((iconCol + j) / cols, iconRow / rows, ch, "text"))
-            }
-            const dotChars = " ... "
-            for (let j = 0; j < dotChars.length; j++) {
-              const ch = dotChars[j]
-              if (ch && ch.trim())
-                pts.push(makePoint((iconCol + j) / cols, (iconRow + 1) / rows, ch, "text"))
-            }
-            return pts
-          }
-          return []
-        }
-
-        if (firstClickShape === "logo" && logoImage) {
-          const img = new Image()
-          img.crossOrigin = "anonymous"
-          img.onload = () => {
-            const pts = buildImagePoints(
-              img,
-              cols,
-              rows,
-              RAMP_BAND,
-              logoAlpha,
-              logoScale
-            )
-            morph(persistentRef.current, pts, {
-              duration: revealDuration * 1000,
-            })
-          }
-          img.onerror = () => {
-            const pts = buildShape("text")
-            morph(persistentRef.current, pts, {
-              duration: revealDuration * 1000,
-            })
-          }
-          img.src = logoImage
-        } else {
-          const target = buildShape(firstClickShape || "text")
-          morph(persistentRef.current, target, {
-            duration: revealDuration * 1000,
-          })
-        }
-
-        setTimeout(
-          () => {
-            stateRef.current = "revealed"
-            if (typeof onComplete === "function") onComplete()
-          },
-          revealDuration * 1000 + 300
-        )
-      }, 200)
     }
 
     const onPointerMove = (clientX: number, clientY: number) => {
@@ -940,6 +815,10 @@ export default function VygrIntro({
 
       const tNow = (now - startTimeRef.current) / 1000
 
+      const CYCLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&!?<>=+-/:."
+      const cycleIdx = Math.floor(tNow * 6) % CYCLE_CHARS.length
+      const cycleChar = CYCLE_CHARS[cycleIdx]
+
       const layers: Point[][] = []
       if (stateRef.current === "idle") {
         const cloud = buildMurmurationPoints(
@@ -953,7 +832,8 @@ export default function VygrIntro({
           fillRef.current,
           pointerRef.current.x,
           pointerRef.current.y,
-          pointerRef.current.active ? cursorRepel : 0
+          pointerRef.current.active ? cursorRepel : 0,
+          cycleChar
         )
         layers.push(cloud)
 
@@ -975,11 +855,41 @@ export default function VygrIntro({
           hintRef.current.style.transform =
             `translate3d(${hx}px, ${hy}px, 0) translate(-50%, -50%)`
         }
-      }
+      } else if (stateRef.current === "revealing") {
+        const revealElapsed =
+          (now - revealStartRef.current) / 1000
+        const collapseDuration = 1.8
+        const collapse = Math.min(1, revealElapsed / collapseDuration)
+        const eased = collapse * collapse * (3 - 2 * collapse)
 
-      if (persistentRef.current.length) {
-        applyPhysics(persistentRef.current, delta, rows)
-        layers.push(persistentRef.current)
+        const dynThreshold = cloudThreshold + eased * 0.7
+
+        const cloud = buildMurmurationPoints(
+          cols,
+          rows,
+          tNow * idleSpeed,
+          0.5,
+          0.5,
+          dynThreshold,
+          cloudRamp === "band" ? RAMP_BAND : RAMP,
+          fillRef.current,
+          0.5,
+          0.5,
+          0,
+          cycleChar
+        )
+
+        for (let i = 0; i < cloud.length; i++) {
+          cloud[i].x = lerp(cloud[i].x, 0.5, eased * 0.6)
+          cloud[i].y = lerp(cloud[i].y, 0.5, eased * 0.6)
+        }
+
+        layers.push(cloud)
+
+        if (collapse >= 1) {
+          stateRef.current = "revealed"
+          if (typeof onComplete === "function") onComplete()
+        }
       }
 
       renderToBuffer(cols, rows, layers, grid)

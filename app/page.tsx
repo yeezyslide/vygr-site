@@ -10,10 +10,9 @@ const MANIFESTO =
 export default function Home() {
   const [phase, setPhase] = useState<"intro" | "text">("intro")
 
-  const handleReveal = useCallback(() => {
-    if (phase !== "intro") return
+  const handleComplete = useCallback(() => {
     setPhase("text")
-  }, [phase])
+  }, [])
 
   return (
     <main
@@ -30,14 +29,13 @@ export default function Home() {
           position: "absolute",
           inset: 0,
           opacity: phase === "text" ? 0 : 1,
-          transition: "opacity 0.8s ease",
+          transition: "opacity 0.4s ease",
           pointerEvents: phase === "text" ? "none" : "auto",
         }}
-        onClick={handleReveal}
-        onTouchStart={handleReveal}
       >
         <VygrIntro
           text={MANIFESTO}
+          onComplete={handleComplete}
           firstClickShape="none"
           explodeSpread={0}
           revealDuration={2.5}
