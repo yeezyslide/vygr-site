@@ -32,21 +32,39 @@ float noise(vec2 p) {
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
+float fbm(vec2 p) {
+  float v = 0.0;
+  float a = 0.5;
+  for (int i = 0; i < 4; i++) {
+    v += a * noise(p);
+    p *= 2.0;
+    a *= 0.5;
+  }
+  return v;
+}
+
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
   vec2 mouse = u_mouse;
 
   float dist = length(uv - mouse);
-  float influence = smoothstep(0.4, 0.0, dist) * 0.3;
+  float influence = smoothstep(0.5, 0.0, dist);
 
-  vec2 noiseCoord = gl_FragCoord.xy * 1.5;
-  noiseCoord += u_time * 8.0;
-  noiseCoord += influence * 40.0 * (uv - mouse);
+  vec2 warp = (uv - mouse) * influence * 0.08;
+  vec2 warped = uv + warp;
 
-  float n = noise(noiseCoord);
-  float grain = (n - 0.5) * 0.06 + influence * 0.02;
+  float grain1 = hash(gl_FragCoord.xy + fract(u_time * 43.0) * 100.0);
 
-  gl_FragColor = vec4(vec3(grain + 0.114), 1.0);
+  vec2 noiseCoord = warped * u_resolution * 0.003;
+  noiseCoord += u_time * 0.15;
+  noiseCoord += influence * 2.0 * (uv - mouse);
+  float structure = fbm(noiseCoord) - 0.5;
+
+  float n = grain1 * 0.12 + structure * 0.06;
+
+  float brighten = influence * 0.025;
+
+  gl_FragColor = vec4(vec3(0.114 + n + brighten), 1.0);
 }
 `
 
