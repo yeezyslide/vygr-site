@@ -815,10 +815,6 @@ export default function VygrIntro({
 
       const tNow = (now - startTimeRef.current) / 1000
 
-      const CYCLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&!?<>=+-/:."
-      const cycleIdx = Math.floor(tNow * 6) % CYCLE_CHARS.length
-      const cycleChar = CYCLE_CHARS[cycleIdx]
-
       const layers: Point[][] = []
       if (stateRef.current === "idle") {
         const cloud = buildMurmurationPoints(
@@ -832,8 +828,7 @@ export default function VygrIntro({
           fillRef.current,
           pointerRef.current.x,
           pointerRef.current.y,
-          pointerRef.current.active ? cursorRepel : 0,
-          cycleChar
+          pointerRef.current.active ? cursorRepel : 0
         )
         layers.push(cloud)
 
@@ -875,8 +870,7 @@ export default function VygrIntro({
           fillRef.current,
           0.5,
           0.5,
-          0,
-          cycleChar
+          0
         )
 
         for (let i = 0; i < cloud.length; i++) {
