@@ -45,6 +45,7 @@ export default function Home() {
           revealDuration={2.5}
           pointerInfluence={0.8}
           cloudThreshold={0.35}
+          backgroundColor="transparent"
         />
       </div>
 
