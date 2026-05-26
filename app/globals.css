@@ -11,7 +11,7 @@ html {
 }
 
 body {
-  background: #282828;
+  background: #1D1D1D;
   color: #fff;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -23,7 +23,7 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #282828;
+  background: #1D1D1D;
 }
 
 ::-webkit-scrollbar-thumb {

@@ -22,7 +22,7 @@ export default function Home() {
         width: "100vw",
         height: "100dvh",
         overflow: "hidden",
-        background: "#282828",
+        background: "#1D1D1D",
       }}
     >
       <div
