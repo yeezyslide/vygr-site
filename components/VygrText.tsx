@@ -328,7 +328,7 @@ export default function VygrText({
 
   return (
     <div ref={containerRef} style={containerStyle}>
-      <div style={{ maxWidth: "91ch", margin: "0 auto" }}>
+      <div>
         {renderWords()}
       </div>
       {logo ? <img src={logo} alt="" style={logoStyle} /> : null}

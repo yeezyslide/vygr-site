@@ -46,19 +46,19 @@ export default function Home() {
 
       {phase === "text" && (
         <div
+          className="text-reveal"
           style={{
             position: "absolute",
             inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            overflowY: "auto",
           }}
         >
-          <div style={{ width: 764, maxWidth: "90vw" }}>
+          <div className="text-container">
             <VygrText
               text={MANIFESTO}
               fontSize={14}
-              lineHeight={1.35}
+              lineHeight={1.4}
+              letterSpacing={0.02}
               color="#FFFFFF"
               backgroundColor="transparent"
               entranceDuration={6}
@@ -73,6 +73,21 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      <style>{`
+        .text-container {
+          padding: 12vh 5vw 10vh;
+        }
+        .text-container > div {
+          max-width: none !important;
+          margin: 0 !important;
+        }
+        @media (max-width: 768px) {
+          .text-container {
+            padding: 8vh 6vw 10vh;
+          }
+        }
+      `}</style>
     </main>
   )
 }
