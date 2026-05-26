@@ -91,11 +91,13 @@ export default function Home() {
         }
         @media (max-width: 810px) {
           .vygr-text-container {
-            width: 100%;
-            padding: 0 20px;
+            width: 353px;
+            max-width: 100%;
+            padding: 0;
           }
           .vygr-text-container > div {
-            font-size: 11px !important;
+            font-size: 12.5px !important;
+            font-weight: 500 !important;
             line-height: 1.3 !important;
             letter-spacing: 0em !important;
           }
