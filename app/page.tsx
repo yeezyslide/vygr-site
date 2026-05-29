@@ -40,8 +40,6 @@ export default function Home() {
           fontSize={isMobile ? 11 : 14}
           lineHeight={1.0}
           threshold={0.42}
-          pointerInfluence={0.6}
-          cursorRepel={0.14}
           backgroundColor="transparent"
         />
       </div>

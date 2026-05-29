@@ -5,131 +5,159 @@ import { useEffect, useRef } from "react"
 const lerp = (a: number, b: number, t: number) => a * (1 - t) + b * t
 const clamp = (v: number, lo: number, hi: number) =>
   v < lo ? lo : v > hi ? hi : v
-
 const easeInOutCubic = (t: number) =>
   t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+const smoothstep = (t: number) => t * t * (3 - 2 * t)
+
+const SCRAMBLE_POOL = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!?<>=+-/:*."
+
+// ── stages ─────────────────────────────────────────────────────────────
+//   0 — TYPEWRITER: first phrase types in word-by-word at center
+//   1 — EXPANSION: cells emerge at center, migrate into skinny formation
+//   2 — WILD: cells live, click cycles formations
+
+const TYPEWRITER_END = 2.8
+const EXPANSION_END = 4.6
+const TYPEWRITER_PHRASE =
+  "FOR MILLENNIA THE HUMAN MIND HAS BEEN CONSTRAINED BY THE FRAGILE GEOMETRY OF THE SKULL"
 
 // ── formations ─────────────────────────────────────────────────────────
-// Each formation is a list of [cx, cy, radius, weight] metaball sources.
-// Cycling through these (with eased blends) gives the elastic morph.
+// Each formation is N cells of [cx, cy, radius, weight].
+// First entry (skinny tall column) is the post-typewriter target.
+
+const NUM_CELLS = 6
 
 const FORMATIONS: number[][][] = [
-  // wide horizontal cluster (current)
+  // 0 — skinny tall column (entrance target)
   [
-    [0.50, 0.30, 0.28, 1.0],
-    [0.50, 0.50, 0.26, 0.95],
-    [0.50, 0.40, 0.18, 0.85],
-    [0.50, 0.22, 0.08, 0.5],
-    [0.50, 0.62, 0.06, 0.35],
+    [0.50, 0.18, 0.10, 1.0],
+    [0.50, 0.34, 0.11, 1.0],
+    [0.50, 0.50, 0.12, 1.0],
+    [0.50, 0.66, 0.11, 1.0],
+    [0.50, 0.82, 0.10, 0.9],
+    [0.50, 0.50, 0.05, 0.4],
   ],
-  // skinny vertical column
-  [
-    [0.50, 0.30, 0.12, 1.0],
-    [0.50, 0.50, 0.10, 0.95],
-    [0.50, 0.70, 0.12, 1.0],
-    [0.50, 0.40, 0.06, 0.5],
-    [0.50, 0.60, 0.06, 0.5],
-  ],
-  // diagonal cell-split
-  [
-    [0.62, 0.30, 0.22, 1.0],
-    [0.55, 0.48, 0.18, 0.9],
-    [0.42, 0.66, 0.18, 0.85],
-    [0.70, 0.20, 0.06, 0.4],
-    [0.34, 0.78, 0.06, 0.35],
-  ],
-  // dual blob (mitosis)
-  [
-    [0.32, 0.40, 0.22, 1.0],
-    [0.68, 0.50, 0.22, 1.0],
-    [0.50, 0.45, 0.06, 0.3],
-    [0.30, 0.60, 0.06, 0.4],
-    [0.70, 0.30, 0.06, 0.4],
-  ],
-  // tall stack
-  [
-    [0.50, 0.22, 0.16, 0.9],
-    [0.50, 0.42, 0.20, 1.0],
-    [0.50, 0.62, 0.18, 0.95],
-    [0.50, 0.80, 0.10, 0.55],
-    [0.50, 0.10, 0.06, 0.4],
-  ],
-  // wide elongated band
+  // 1 — wide horizontal bloom
   [
     [0.30, 0.50, 0.18, 1.0],
-    [0.50, 0.50, 0.20, 1.0],
+    [0.50, 0.42, 0.22, 1.0],
     [0.70, 0.50, 0.18, 1.0],
-    [0.20, 0.45, 0.06, 0.4],
-    [0.80, 0.55, 0.06, 0.4],
+    [0.50, 0.62, 0.14, 0.85],
+    [0.22, 0.42, 0.08, 0.45],
+    [0.78, 0.58, 0.08, 0.45],
   ],
-  // amorphous bird
+  // 2 — mitosis (two cells dividing)
   [
-    [0.50, 0.38, 0.24, 1.0],
-    [0.40, 0.52, 0.14, 0.7],
-    [0.60, 0.52, 0.14, 0.7],
+    [0.32, 0.44, 0.20, 1.0],
+    [0.68, 0.52, 0.20, 1.0],
+    [0.32, 0.58, 0.10, 0.6],
+    [0.68, 0.40, 0.10, 0.6],
+    [0.50, 0.48, 0.05, 0.3],
+    [0.50, 0.52, 0.05, 0.3],
+  ],
+  // 3 — diagonal sprawl
+  [
+    [0.30, 0.30, 0.18, 1.0],
+    [0.50, 0.50, 0.20, 1.0],
+    [0.70, 0.70, 0.18, 1.0],
+    [0.40, 0.40, 0.08, 0.45],
+    [0.60, 0.60, 0.08, 0.45],
+    [0.50, 0.20, 0.06, 0.35],
+  ],
+  // 4 — elongated band
+  [
+    [0.20, 0.50, 0.14, 1.0],
+    [0.40, 0.48, 0.16, 1.0],
+    [0.60, 0.52, 0.16, 1.0],
+    [0.80, 0.50, 0.14, 1.0],
+    [0.50, 0.50, 0.10, 0.6],
+    [0.30, 0.55, 0.06, 0.3],
+  ],
+  // 5 — amorphous bird
+  [
+    [0.50, 0.40, 0.22, 1.0],
+    [0.36, 0.52, 0.14, 0.8],
+    [0.64, 0.52, 0.14, 0.8],
     [0.28, 0.32, 0.08, 0.45],
     [0.72, 0.30, 0.08, 0.45],
+    [0.50, 0.62, 0.10, 0.55],
+  ],
+  // 6 — readable block (settled state target)
+  [
+    [0.50, 0.40, 0.28, 1.0],
+    [0.50, 0.50, 0.30, 1.0],
+    [0.50, 0.60, 0.28, 1.0],
+    [0.35, 0.50, 0.18, 0.9],
+    [0.65, 0.50, 0.18, 0.9],
+    [0.50, 0.50, 0.10, 0.7],
   ],
 ]
 
-const murmurationField = (
-  c: number,
-  r: number,
-  cols: number,
-  rows: number,
-  t: number,
-  mx: number,
-  my: number,
-  formationOffset: number
-): number => {
-  const nx = c / cols
-  const ny = r / rows
-  const aspect = 1.8
+// ── cell motion ────────────────────────────────────────────────────────
+// Each cell has a home (target) + an animated pos. Independent oscillation
+// gives the cell-like elastic feel; smooth pursuit toward the home gives
+// the migration on formation change.
 
-  const cycle = (((t + formationOffset) * 0.025) % 1 + 1) % 1
-  const numF = FORMATIONS.length
-  const rawIdx = cycle * numF
-  const fromIdx = Math.floor(rawIdx) % numF
-  const toIdx = (fromIdx + 1) % numF
-  const blend = rawIdx - Math.floor(rawIdx)
-  const eased = blend * blend * (3 - 2 * blend)
+type Cell = {
+  // animated state
+  x: number
+  y: number
+  r: number
+  w: number
+  // home (target) — set by current formation
+  hx: number
+  hy: number
+  hr: number
+  hw: number
+  // per-cell drift
+  ax: number
+  ay: number
+  ar: number
+  fx: number
+  fy: number
+  fr: number
+  phx: number
+  phy: number
+  phr: number
+}
 
-  const from = FORMATIONS[fromIdx]
-  const to = FORMATIONS[toIdx]
-
-  let b = 0
-  for (let i = 0; i < from.length; i++) {
-    const cx = lerp(from[i][0], to[i][0], eased) +
-      0.025 * Math.sin(t * 0.06 + i * 1.7) +
-      0.03 * (mx - 0.5)
-    const cy = lerp(from[i][1], to[i][1], eased) +
-      0.02 * Math.cos(t * 0.05 + i * 2.3) +
-      0.025 * (my - 0.5)
-    const br = lerp(from[i][2], to[i][2], eased) +
-      0.008 * Math.sin(t * 0.2 + i * 3.1)
-    const bw = lerp(from[i][3], to[i][3], eased)
-
-    const dx = nx - cx
-    const dy = (ny - cy) * aspect
-    const wobble =
-      0.10 * Math.sin(dx * 10 + dy * 7 + t * 0.3 + i * 2.1) +
-      0.05 * Math.cos(dx * 6 - dy * 12 + t * 0.2 + i * 3.3)
-    const sig = br * (1 + wobble) * 0.58
-    const sig2 = sig * sig
-    if (sig2 > 0.0001) {
-      b += bw * Math.exp(-(dx * dx + dy * dy) / (2 * sig2))
-    }
+const makeCells = (n: number): Cell[] => {
+  const out: Cell[] = []
+  for (let i = 0; i < n; i++) {
+    out.push({
+      x: 0.5,
+      y: 0.5,
+      r: 0.001,
+      w: 1.0,
+      hx: 0.5,
+      hy: 0.5,
+      hr: 0.001,
+      hw: 1.0,
+      ax: 0.02 + Math.random() * 0.03,
+      ay: 0.02 + Math.random() * 0.03,
+      ar: 0.12 + Math.random() * 0.12,
+      fx: 0.35 + Math.random() * 0.4,
+      fy: 0.3 + Math.random() * 0.4,
+      fr: 0.5 + Math.random() * 0.6,
+      phx: Math.random() * Math.PI * 2,
+      phy: Math.random() * Math.PI * 2,
+      phr: Math.random() * Math.PI * 2,
+    })
   }
+  return out
+}
 
-  b += 0.02 * Math.sin(nx * 12 + t * 0.3 + Math.sin(ny * 8 + t * 0.15) * 2)
-  b *= 0.92 + 0.08 * Math.sin(t * 0.25)
-  return b
+const assignHomes = (cells: Cell[], formation: number[][]) => {
+  for (let i = 0; i < cells.length; i++) {
+    const f = formation[i % formation.length]
+    cells[i].hx = f[0]
+    cells[i].hy = f[1]
+    cells[i].hr = f[2]
+    cells[i].hw = f[3]
+  }
 }
 
 // ── text grid ──────────────────────────────────────────────────────────
-// Lays out the manifesto across the visible grid, word-wrapping and
-// repeating to fill. Each cell holds a single character; shapes reveal
-// portions of the underlying text.
 
 const buildTextGrid = (
   cols: number,
@@ -139,8 +167,6 @@ const buildTextGrid = (
   const grid = new Array<string>(cols * rows).fill(" ")
   const upper = (text || "").toUpperCase().replace(/\s+/g, " ").trim()
   if (!upper) return grid
-
-  // Tokenize to words (no spaces)
   const words = upper.split(" ").filter(Boolean)
   if (!words.length) return grid
 
@@ -149,7 +175,6 @@ const buildTextGrid = (
     let col = 0
     while (col < cols) {
       const w = words[wi % words.length]
-      // very long word: hard break
       if (w.length > cols) {
         const fit = w.slice(0, cols - col)
         for (let i = 0; i < fit.length; i++) {
@@ -160,7 +185,6 @@ const buildTextGrid = (
         break
       }
       if (col > 0 && col + w.length + 1 > cols) break
-      // optional leading space between words on same line
       if (col > 0) {
         grid[r * cols + col] = " "
         col++
@@ -172,7 +196,6 @@ const buildTextGrid = (
       }
       wi++
     }
-    // pad row
     while (col < cols) {
       grid[r * cols + col] = " "
       col++
@@ -181,63 +204,42 @@ const buildTextGrid = (
   return grid
 }
 
-// ── shape sampler ──────────────────────────────────────────────────────
+// ── field ──────────────────────────────────────────────────────────────
 
-type Cell = { x: number; y: number; value: string }
+const ASPECT = 1.8
 
-const buildShapeCells = (
-  cols: number,
-  rows: number,
-  t: number,
-  mx: number,
-  my: number,
-  threshold: number,
-  fill: number,
-  cursorX: number,
-  cursorY: number,
-  cursorRepel: number,
-  textGrid: string[],
-  formationOffset: number
-): Cell[] => {
-  const out: Cell[] = []
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const b = murmurationField(c, r, cols, rows, t, mx, my, formationOffset)
-      const cellShimmer = Math.sin(c * 13.7 + r * 7.3 + t * 3) * 0.06
-      let beff = b * fill + cellShimmer * fill
-      if (cursorRepel > 0) {
-        const ndx = c / cols - cursorX
-        const ndy = r / rows - cursorY
-        const d = Math.sqrt(ndx * ndx + ndy * ndy)
-        if (d < cursorRepel) {
-          const t2 = d / cursorRepel
-          const falloff = t2 * t2 * (3 - 2 * t2)
-          beff *= Math.max(0, falloff)
-        }
-      }
-      if (beff < threshold) continue
-      const ch = textGrid[r * cols + c]
-      if (!ch || !ch.trim()) continue
-      out.push({ x: c, y: r, value: ch })
+const fieldAt = (
+  nx: number,
+  ny: number,
+  cells: Cell[],
+  t: number
+): number => {
+  let b = 0
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i]
+    const dx = nx - c.x
+    const dy = (ny - c.y) * ASPECT
+    // membrane wobble — gives each cell a non-circular living edge
+    const wobble =
+      0.10 * Math.sin(dx * 9 + dy * 7 + t * 0.6 + c.phx * 3) +
+      0.06 * Math.cos(dx * 6 - dy * 11 + t * 0.4 + c.phy * 3)
+    const r = c.r * (1 + wobble)
+    const sig2 = r * r * 0.34
+    if (sig2 > 0.0001) {
+      b += c.w * Math.exp(-(dx * dx + dy * dy) / (2 * sig2))
     }
   }
-  return out
+  return b
 }
 
-const renderToBuffer = (
+// ── render ─────────────────────────────────────────────────────────────
+
+const renderGrid = (
   cols: number,
   rows: number,
-  cells: Cell[],
+  buf: string[],
   container: HTMLDivElement
 ) => {
-  const total = cols * rows
-  const buf: string[] = new Array(total)
-  for (let i = 0; i < total; i++) buf[i] = " "
-  for (let i = 0, n = cells.length; i < n; i++) {
-    const p = cells[i]
-    if (p.x < 0 || p.x >= cols || p.y < 0 || p.y >= rows) continue
-    buf[p.y * cols + p.x] = p.value
-  }
   let s = ""
   for (let r = 0; r < rows; r++) {
     s += buf.slice(r * cols, (r + 1) * cols).join("")
@@ -257,8 +259,6 @@ interface VygrIntroProps {
   fontSize?: number
   lineHeight?: number
   threshold?: number
-  pointerInfluence?: number
-  cursorRepel?: number
 }
 
 export default function VygrIntro({
@@ -270,18 +270,16 @@ export default function VygrIntro({
   fontSize = 14,
   lineHeight = 1.0,
   threshold = 0.42,
-  pointerInfluence = 0.6,
-  cursorRepel = 0.14,
 }: VygrIntroProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const gridRef = useRef<HTMLDivElement | null>(null)
   const dimsRef = useRef({ cols: 0, rows: 0 })
-  const pointerRef = useRef({ x: 0.5, y: 0.5, active: false })
-  const easedCursorRef = useRef({ x: 0.5, y: 0.5 })
-  const fillRef = useRef(0)
   const startTimeRef = useRef(0)
   const textGridRef = useRef<string[]>([])
-  const formationOffsetRef = useRef({ current: 0, target: 0 })
+  const cellsRef = useRef<Cell[]>(makeCells(NUM_CELLS))
+  const formationIdxRef = useRef(0)
+  // entrance starts on skinny column (index 0). User clicks cycle from 1+.
+  const userCyclingRef = useRef(false)
 
   useEffect(() => {
     const cont = containerRef.current
@@ -312,117 +310,175 @@ export default function VygrIntro({
     const ro = new ResizeObserver(measure)
     ro.observe(cont)
 
+    // Initial homes: skinny tall column (formation 0)
+    assignHomes(cellsRef.current, FORMATIONS[0])
+
     startTimeRef.current = performance.now()
     let raf = 0
-    let lastT = startTimeRef.current
 
-    const onPointerMove = (clientX: number, clientY: number) => {
-      const r = cont.getBoundingClientRect()
-      pointerRef.current.x = clamp((clientX - r.left) / r.width, 0, 1)
-      pointerRef.current.y = clamp((clientY - r.top) / r.height, 0, 1)
-      pointerRef.current.active = true
-    }
-    const handleMouseMove = (e: MouseEvent) =>
-      onPointerMove(e.clientX, e.clientY)
-    const handleMouseLeave = () => {
-      pointerRef.current.active = false
-    }
     const handleClick = () => {
-      // jump forward by one formation slot
-      formationOffsetRef.current.target += 1 / 0.025 / FORMATIONS.length
+      const now = (performance.now() - startTimeRef.current) / 1000
+      if (now < EXPANSION_END) return // ignore clicks during entrance
+      userCyclingRef.current = true
+      // cycle to next formation (skip 0 = entrance shape)
+      formationIdxRef.current =
+        (formationIdxRef.current % (FORMATIONS.length - 1)) + 1
+      assignHomes(cellsRef.current, FORMATIONS[formationIdxRef.current])
     }
-    const handleTouchStart = (e: TouchEvent) => {
-      const t = e.touches[0]
-      if (t) onPointerMove(t.clientX, t.clientY)
-    }
-    const handleTouchMove = (e: TouchEvent) => {
-      const t = e.touches[0]
-      if (t) onPointerMove(t.clientX, t.clientY)
-    }
-    const handleTouchEnd = () => {
-      pointerRef.current.active = false
-      handleClick()
-    }
-
-    cont.addEventListener("mousemove", handleMouseMove)
-    cont.addEventListener("mouseleave", handleMouseLeave)
     cont.addEventListener("click", handleClick)
-    cont.addEventListener("touchstart", handleTouchStart)
-    cont.addEventListener("touchmove", handleTouchMove)
-    cont.addEventListener("touchend", handleTouchEnd)
+    cont.addEventListener("touchend", handleClick)
+
+    // ── typewriter row layout ──
+    const typewriterChars = (
+      t: number,
+      cols: number
+    ): { col: number; ch: string }[] => {
+      const out: { col: number; ch: string }[] = []
+      const words = TYPEWRITER_PHRASE.split(" ")
+      const totalChars = TYPEWRITER_PHRASE.length
+      // pace
+      const charDur = TYPEWRITER_END / (totalChars + 6) // small idle pad
+      const scrambleDur = charDur * 1.8
+      // center the phrase
+      const startCol = Math.max(
+        0,
+        Math.floor((cols - TYPEWRITER_PHRASE.length) / 2)
+      )
+      let absIdx = 0
+      let col = startCol
+      for (let wi = 0; wi < words.length; wi++) {
+        const word = words[wi]
+        for (let ci = 0; ci < word.length; ci++) {
+          const charStart = absIdx * charDur
+          const charLock = charStart + scrambleDur
+          if (t >= charStart) {
+            if (t < charLock) {
+              out.push({
+                col,
+                ch: SCRAMBLE_POOL[
+                  Math.floor(Math.random() * SCRAMBLE_POOL.length)
+                ],
+              })
+            } else {
+              out.push({ col, ch: word[ci] })
+            }
+          }
+          col++
+          absIdx++
+        }
+        col++ // word gap
+        absIdx++
+      }
+      return out
+    }
 
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick)
-      lastT = now
       const { cols, rows } = dimsRef.current
       if (!cols || !rows) return
-
       const tNow = (now - startTimeRef.current) / 1000
 
-      // fill entrance ramp
-      const rampE = Math.min(1, tNow / 3.5)
-      fillRef.current = easeInOutCubic(rampE)
+      const buf: string[] = new Array(cols * rows).fill(" ")
 
-      // smooth formation offset
-      const fo = formationOffsetRef.current
-      fo.current += (fo.target - fo.current) * 0.04
-
-      // eased pointer
-      const ec = easedCursorRef.current
-      if (pointerRef.current.active) {
-        ec.x += (pointerRef.current.x - ec.x) * 0.05
-        ec.y += (pointerRef.current.y - ec.y) * 0.05
-      } else {
-        ec.x += (0.5 - ec.x) * 0.02
-        ec.y += (0.5 - ec.y) * 0.02
+      // ── pre-cycle home update (formations auto-cycle slowly until user clicks)
+      if (!userCyclingRef.current && tNow > EXPANSION_END + 6) {
+        // auto-advance every 6s
+        const slot = Math.floor((tNow - EXPANSION_END) / 6) % (FORMATIONS.length - 1)
+        const nextIdx = slot + 1
+        if (formationIdxRef.current !== nextIdx) {
+          formationIdxRef.current = nextIdx
+          assignHomes(cellsRef.current, FORMATIONS[nextIdx])
+        }
       }
 
-      const px =
-        pointerRef.current.x * pointerInfluence +
-        0.5 * (1 - pointerInfluence)
-      const py =
-        pointerRef.current.y * pointerInfluence +
-        0.5 * (1 - pointerInfluence)
+      // ── update cells ──
+      const cells = cellsRef.current
+      // entrance scaling: radii start at 0 and grow over expansion stage
+      let entranceR = 0
+      if (tNow < TYPEWRITER_END) {
+        entranceR = 0
+      } else if (tNow < EXPANSION_END) {
+        const t01 = (tNow - TYPEWRITER_END) / (EXPANSION_END - TYPEWRITER_END)
+        entranceR = easeInOutCubic(t01)
+      } else {
+        entranceR = 1
+      }
 
-      const cells = buildShapeCells(
-        cols,
-        rows,
-        tNow,
-        px,
-        py,
-        threshold,
-        fillRef.current,
-        ec.x,
-        ec.y,
-        pointerRef.current.active ? cursorRepel : 0,
-        textGridRef.current,
-        fo.current
-      )
+      for (let i = 0; i < cells.length; i++) {
+        const c = cells[i]
+        const desX =
+          c.hx + c.ax * Math.sin(tNow * c.fx * 2 * Math.PI + c.phx)
+        const desY =
+          c.hy + c.ay * Math.sin(tNow * c.fy * 2 * Math.PI + c.phy)
+        const desR =
+          c.hr *
+          (1 + c.ar * Math.sin(tNow * c.fr * 2 * Math.PI + c.phr)) *
+          entranceR
+        const desW = c.hw
+        // smooth pursuit
+        c.x += (desX - c.x) * 0.08
+        c.y += (desY - c.y) * 0.08
+        c.r += (desR - c.r) * 0.06
+        c.w += (desW - c.w) * 0.05
+      }
 
-      renderToBuffer(cols, rows, cells, grid)
+      // ── render field cells ──
+      if (tNow >= TYPEWRITER_END - 0.1) {
+        const textGrid = textGridRef.current
+        // overall fill ramps in during expansion
+        const fill =
+          tNow < TYPEWRITER_END
+            ? 0
+            : tNow < EXPANSION_END
+              ? easeInOutCubic(
+                  (tNow - TYPEWRITER_END) / (EXPANSION_END - TYPEWRITER_END)
+                )
+              : 1
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const nx = c / cols
+            const ny = r / rows
+            const b = fieldAt(nx, ny, cells, tNow)
+            const shimmer = Math.sin(c * 13.7 + r * 7.3 + tNow * 3) * 0.04
+            const beff = (b + shimmer) * fill
+            if (beff < threshold) continue
+            const ch = textGrid[r * cols + c]
+            if (!ch || !ch.trim()) continue
+            buf[r * cols + c] = ch
+          }
+        }
+      }
+
+      // ── overlay typewriter on top during stage 0 (and fading during stage 1) ──
+      if (tNow < EXPANSION_END) {
+        const row = Math.floor(rows / 2)
+        const chars = typewriterChars(Math.min(tNow, TYPEWRITER_END), cols)
+        // during expansion, fade typewriter by blanking randomly
+        const fadeOut =
+          tNow > TYPEWRITER_END
+            ? smoothstep(
+                (tNow - TYPEWRITER_END) / (EXPANSION_END - TYPEWRITER_END)
+              )
+            : 0
+        for (let i = 0; i < chars.length; i++) {
+          const { col, ch } = chars[i]
+          if (col < 0 || col >= cols) continue
+          if (fadeOut > 0 && Math.random() < fadeOut) continue
+          buf[row * cols + col] = ch
+        }
+      }
+
+      renderGrid(cols, rows, buf, grid)
     }
     raf = requestAnimationFrame(tick)
 
     return () => {
       cancelAnimationFrame(raf)
       ro.disconnect()
-      cont.removeEventListener("mousemove", handleMouseMove)
-      cont.removeEventListener("mouseleave", handleMouseLeave)
       cont.removeEventListener("click", handleClick)
-      cont.removeEventListener("touchstart", handleTouchStart)
-      cont.removeEventListener("touchmove", handleTouchMove)
-      cont.removeEventListener("touchend", handleTouchEnd)
+      cont.removeEventListener("touchend", handleClick)
     }
-  }, [
-    text,
-    fontFamily,
-    fontWeight,
-    fontSize,
-    lineHeight,
-    threshold,
-    pointerInfluence,
-    cursorRepel,
-  ])
+  }, [text, fontFamily, fontWeight, fontSize, lineHeight, threshold])
 
   return (
     <div
