@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from "react"
 
-const lerp = (a: number, b: number, t: number) => a * (1 - t) + b * t
 const clamp = (v: number, lo: number, hi: number) =>
   v < lo ? lo : v > hi ? hi : v
 const easeInOutCubic = (t: number) =>
@@ -11,19 +10,16 @@ const smoothstep = (t: number) => t * t * (3 - 2 * t)
 
 const SCRAMBLE_POOL = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!?<>=+-/:*."
 
-// ── stages ─────────────────────────────────────────────────────────────
-//   0 — TYPEWRITER: first phrase types in word-by-word at center
-//   1 — EXPANSION: cells emerge at center, migrate into skinny formation
-//   2 — WILD: cells live, click cycles formations
+// ── stage timing ───────────────────────────────────────────────────────
+const TYPEWRITER_END = 3.6   // first phrase types in
+const HOLD_DUR = 0.35        // held after type before expansion
+const EXPANSION_END = 6.2    // cells fully formed
+const CYCLE_INTERVAL = 4.0   // shape auto-cycle (s)
 
-const TYPEWRITER_END = 2.8
-const EXPANSION_END = 4.6
 const TYPEWRITER_PHRASE =
-  "FOR MILLENNIA THE HUMAN MIND HAS BEEN CONSTRAINED BY THE FRAGILE GEOMETRY OF THE SKULL"
+  "FOR MILLENNIA, THE HUMAN MIND HAS BEEN CONSTRAINED BY THE FRAGILE GEOMETRY OF THE SKULL."
 
 // ── formations ─────────────────────────────────────────────────────────
-// Each formation is N cells of [cx, cy, radius, weight].
-// First entry (skinny tall column) is the post-typewriter target.
 
 const NUM_CELLS = 6
 
@@ -46,7 +42,7 @@ const FORMATIONS: number[][][] = [
     [0.22, 0.42, 0.08, 0.45],
     [0.78, 0.58, 0.08, 0.45],
   ],
-  // 2 — mitosis (two cells dividing)
+  // 2 — mitosis
   [
     [0.32, 0.44, 0.20, 1.0],
     [0.68, 0.52, 0.20, 1.0],
@@ -82,7 +78,7 @@ const FORMATIONS: number[][][] = [
     [0.72, 0.30, 0.08, 0.45],
     [0.50, 0.62, 0.10, 0.55],
   ],
-  // 6 — readable block (settled state target)
+  // 6 — readable block
   [
     [0.50, 0.40, 0.28, 1.0],
     [0.50, 0.50, 0.30, 1.0],
@@ -93,23 +89,17 @@ const FORMATIONS: number[][][] = [
   ],
 ]
 
-// ── cell motion ────────────────────────────────────────────────────────
-// Each cell has a home (target) + an animated pos. Independent oscillation
-// gives the cell-like elastic feel; smooth pursuit toward the home gives
-// the migration on formation change.
+// ── cells ──────────────────────────────────────────────────────────────
 
 type Cell = {
-  // animated state
   x: number
   y: number
   r: number
   w: number
-  // home (target) — set by current formation
   hx: number
   hy: number
   hr: number
   hw: number
-  // per-cell drift
   ax: number
   ay: number
   ar: number
@@ -124,21 +114,23 @@ type Cell = {
 const makeCells = (n: number): Cell[] => {
   const out: Cell[] = []
   for (let i = 0; i < n; i++) {
+    // spread along the typewriter row for a smooth emergence from the text
+    const x = n > 1 ? 0.32 + (i / (n - 1)) * 0.36 : 0.5
     out.push({
-      x: 0.5,
+      x,
       y: 0.5,
-      r: 0.001,
+      r: 0,
       w: 1.0,
       hx: 0.5,
       hy: 0.5,
       hr: 0.001,
       hw: 1.0,
-      ax: 0.02 + Math.random() * 0.03,
-      ay: 0.02 + Math.random() * 0.03,
-      ar: 0.12 + Math.random() * 0.12,
-      fx: 0.35 + Math.random() * 0.4,
-      fy: 0.3 + Math.random() * 0.4,
-      fr: 0.5 + Math.random() * 0.6,
+      ax: 0.02 + Math.random() * 0.025,
+      ay: 0.02 + Math.random() * 0.025,
+      ar: 0.10 + Math.random() * 0.12,
+      fx: 0.32 + Math.random() * 0.35,
+      fy: 0.28 + Math.random() * 0.32,
+      fr: 0.45 + Math.random() * 0.55,
       phx: Math.random() * Math.PI * 2,
       phy: Math.random() * Math.PI * 2,
       phr: Math.random() * Math.PI * 2,
@@ -219,7 +211,6 @@ const fieldAt = (
     const c = cells[i]
     const dx = nx - c.x
     const dy = (ny - c.y) * ASPECT
-    // membrane wobble — gives each cell a non-circular living edge
     const wobble =
       0.10 * Math.sin(dx * 9 + dy * 7 + t * 0.6 + c.phx * 3) +
       0.06 * Math.cos(dx * 6 - dy * 11 + t * 0.4 + c.phy * 3)
@@ -246,6 +237,49 @@ const renderGrid = (
     if (r < rows - 1) s += "\n"
   }
   container.textContent = s
+}
+
+// ── hover ──────────────────────────────────────────────────────────────
+
+const HOVER_RADIUS = 0.16   // normalized (of width)
+const HOVER_STAGGER = 0.32  // s — outer chars trigger this much later
+const HOVER_SCRAMBLE = 0.28 // s — scramble duration before lock
+
+const applyHoverPass = (
+  buf: string[],
+  cols: number,
+  rows: number,
+  cursorX: number,
+  cursorY: number,
+  moveTime: number,
+  tNow: number
+) => {
+  if (cursorX < 0) return
+  const cursorCol = cursorX * cols
+  const cursorRow = cursorY * rows
+  const radius = HOVER_RADIUS * cols
+  const radiusSq = radius * radius
+  const colMin = Math.max(0, Math.floor(cursorCol - radius))
+  const colMax = Math.min(cols - 1, Math.ceil(cursorCol + radius))
+  const rowMin = Math.max(0, Math.floor(cursorRow - radius / ASPECT))
+  const rowMax = Math.min(rows - 1, Math.ceil(cursorRow + radius / ASPECT))
+  for (let r = rowMin; r <= rowMax; r++) {
+    for (let c = colMin; c <= colMax; c++) {
+      const ch = buf[r * cols + c]
+      if (!ch || ch === " ") continue
+      const dx = c - cursorCol
+      const dy = (r - cursorRow) * ASPECT
+      const distSq = dx * dx + dy * dy
+      if (distSq > radiusSq) continue
+      const norm = Math.sqrt(distSq) / radius
+      const triggerAt = moveTime + norm * HOVER_STAGGER
+      const elapsed = tNow - triggerAt
+      if (elapsed > 0 && elapsed < HOVER_SCRAMBLE) {
+        buf[r * cols + c] =
+          SCRAMBLE_POOL[Math.floor(Math.random() * SCRAMBLE_POOL.length)]
+      }
+    }
+  }
 }
 
 // ── component ──────────────────────────────────────────────────────────
@@ -278,8 +312,10 @@ export default function VygrIntro({
   const textGridRef = useRef<string[]>([])
   const cellsRef = useRef<Cell[]>(makeCells(NUM_CELLS))
   const formationIdxRef = useRef(0)
-  // entrance starts on skinny column (index 0). User clicks cycle from 1+.
-  const userCyclingRef = useRef(false)
+  const lastSlotRef = useRef(-1)
+  const clickBoostsRef = useRef(0)
+  // cursor (normalized)
+  const cursorRef = useRef({ x: -1, y: -1, moveTime: 0 })
 
   useEffect(() => {
     const cont = containerRef.current
@@ -310,65 +346,127 @@ export default function VygrIntro({
     const ro = new ResizeObserver(measure)
     ro.observe(cont)
 
-    // Initial homes: skinny tall column (formation 0)
     assignHomes(cellsRef.current, FORMATIONS[0])
-
     startTimeRef.current = performance.now()
     let raf = 0
 
+    const onPointerMove = (clientX: number, clientY: number) => {
+      const r = cont.getBoundingClientRect()
+      const nx = clamp((clientX - r.left) / r.width, 0, 1)
+      const ny = clamp((clientY - r.top) / r.height, 0, 1)
+      cursorRef.current.x = nx
+      cursorRef.current.y = ny
+      cursorRef.current.moveTime = (performance.now() - startTimeRef.current) / 1000
+    }
+    const handleMouseMove = (e: MouseEvent) =>
+      onPointerMove(e.clientX, e.clientY)
+    const handleMouseLeave = () => {
+      cursorRef.current.x = -1
+      cursorRef.current.y = -1
+    }
+    const handleTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0]
+      if (t) onPointerMove(t.clientX, t.clientY)
+    }
+    const handleTouchEnd = () => {
+      cursorRef.current.x = -1
+      cursorRef.current.y = -1
+    }
     const handleClick = () => {
       const now = (performance.now() - startTimeRef.current) / 1000
-      if (now < EXPANSION_END) return // ignore clicks during entrance
-      userCyclingRef.current = true
-      // cycle to next formation (skip 0 = entrance shape)
-      formationIdxRef.current =
-        (formationIdxRef.current % (FORMATIONS.length - 1)) + 1
-      assignHomes(cellsRef.current, FORMATIONS[formationIdxRef.current])
+      if (now < EXPANSION_END) return
+      // skip to next shape; auto-cycle continues thereafter
+      clickBoostsRef.current += 1
+      lastSlotRef.current = -2
     }
-    cont.addEventListener("click", handleClick)
-    cont.addEventListener("touchend", handleClick)
 
-    // ── typewriter row layout ──
-    const typewriterChars = (
-      t: number,
+    cont.addEventListener("mousemove", handleMouseMove)
+    cont.addEventListener("mouseleave", handleMouseLeave)
+    cont.addEventListener("touchmove", handleTouchMove)
+    cont.addEventListener("touchend", handleTouchEnd)
+    cont.addEventListener("click", handleClick)
+
+    // typewriter chars: returns visible chars + per-char fade (during expansion)
+    const buildTypewriterFrame = (
+      tNow: number,
       cols: number
     ): { col: number; ch: string }[] => {
+      const phrase = TYPEWRITER_PHRASE
+      const totalChars = phrase.length
+      const charDur = TYPEWRITER_END / (totalChars + 4)
+      const scrambleDur = charDur * 2.2
+      const startCol = Math.max(0, Math.floor((cols - phrase.length) / 2))
       const out: { col: number; ch: string }[] = []
-      const words = TYPEWRITER_PHRASE.split(" ")
-      const totalChars = TYPEWRITER_PHRASE.length
-      // pace
-      const charDur = TYPEWRITER_END / (totalChars + 6) // small idle pad
-      const scrambleDur = charDur * 1.8
-      // center the phrase
-      const startCol = Math.max(
-        0,
-        Math.floor((cols - TYPEWRITER_PHRASE.length) / 2)
-      )
+
+      // typing phase
+      const typingT = Math.min(tNow, TYPEWRITER_END)
       let absIdx = 0
       let col = startCol
-      for (let wi = 0; wi < words.length; wi++) {
-        const word = words[wi]
-        for (let ci = 0; ci < word.length; ci++) {
-          const charStart = absIdx * charDur
-          const charLock = charStart + scrambleDur
-          if (t >= charStart) {
-            if (t < charLock) {
-              out.push({
-                col,
-                ch: SCRAMBLE_POOL[
-                  Math.floor(Math.random() * SCRAMBLE_POOL.length)
-                ],
-              })
-            } else {
-              out.push({ col, ch: word[ci] })
-            }
-          }
+      const lockedChars: { col: number; ch: string; centerDist: number }[] = []
+      const phraseHalf = phrase.length / 2
+      for (let i = 0; i < phrase.length; i++) {
+        const ch = phrase[i]
+        if (ch === " ") {
+          // spaces don't render but advance position
           col++
           absIdx++
+          continue
         }
-        col++ // word gap
+        const charStart = absIdx * charDur
+        const charLock = charStart + scrambleDur
+        if (typingT >= charStart) {
+          const centerDist = Math.abs(i - phraseHalf) / phraseHalf
+          if (typingT < charLock) {
+            out.push({
+              col,
+              ch: SCRAMBLE_POOL[
+                Math.floor(Math.random() * SCRAMBLE_POOL.length)
+              ],
+            })
+          } else {
+            // locked char — may fade during expansion
+            if (tNow <= TYPEWRITER_END + HOLD_DUR) {
+              out.push({ col, ch })
+            } else {
+              lockedChars.push({ col, ch, centerDist })
+            }
+          }
+        }
+        col++
         absIdx++
       }
+
+      // fade-out pass for locked chars during expansion (outer first, center last)
+      if (lockedChars.length > 0) {
+        const fadeStart = TYPEWRITER_END + HOLD_DUR
+        const fadeWindow = EXPANSION_END - fadeStart
+        const fadeProgress = clamp((tNow - fadeStart) / fadeWindow, 0, 1)
+        for (const { col, ch, centerDist } of lockedChars) {
+          // outer chars (centerDist≈1) start fading earlier
+          const charFadeStart = (1 - centerDist) * 0.6
+          const charFadeEnd = charFadeStart + 0.35
+          if (fadeProgress < charFadeStart) {
+            out.push({ col, ch })
+          } else if (fadeProgress < charFadeEnd) {
+            // scramble + dropout during fade
+            const localT =
+              (fadeProgress - charFadeStart) / (charFadeEnd - charFadeStart)
+            if (Math.random() > localT) {
+              out.push({
+                col,
+                ch:
+                  Math.random() < 0.4
+                    ? SCRAMBLE_POOL[
+                        Math.floor(Math.random() * SCRAMBLE_POOL.length)
+                      ]
+                    : ch,
+              })
+            }
+          }
+          // else: char fully faded — field shows through
+        }
+      }
+
       return out
     }
 
@@ -380,30 +478,33 @@ export default function VygrIntro({
 
       const buf: string[] = new Array(cols * rows).fill(" ")
 
-      // ── pre-cycle home update (formations auto-cycle slowly until user clicks)
-      if (!userCyclingRef.current && tNow > EXPANSION_END + 6) {
-        // auto-advance every 6s
-        const slot = Math.floor((tNow - EXPANSION_END) / 6) % (FORMATIONS.length - 1)
-        const nextIdx = slot + 1
-        if (formationIdxRef.current !== nextIdx) {
-          formationIdxRef.current = nextIdx
-          assignHomes(cellsRef.current, FORMATIONS[nextIdx])
+      // ── auto-cycle homes ──
+      if (tNow > EXPANSION_END) {
+        const slot = Math.floor((tNow - EXPANSION_END) / CYCLE_INTERVAL)
+        const desiredIdx =
+          ((slot + clickBoostsRef.current) % (FORMATIONS.length - 1)) + 1
+        if (slot !== lastSlotRef.current || formationIdxRef.current !== desiredIdx) {
+          lastSlotRef.current = slot
+          formationIdxRef.current = desiredIdx
+          assignHomes(cellsRef.current, FORMATIONS[desiredIdx])
         }
       }
 
-      // ── update cells ──
-      const cells = cellsRef.current
-      // entrance scaling: radii start at 0 and grow over expansion stage
+      // ── radii multiplier (entrance ramp) ──
       let entranceR = 0
-      if (tNow < TYPEWRITER_END) {
+      if (tNow < TYPEWRITER_END + HOLD_DUR) {
         entranceR = 0
       } else if (tNow < EXPANSION_END) {
-        const t01 = (tNow - TYPEWRITER_END) / (EXPANSION_END - TYPEWRITER_END)
+        const t01 =
+          (tNow - TYPEWRITER_END - HOLD_DUR) /
+          (EXPANSION_END - TYPEWRITER_END - HOLD_DUR)
         entranceR = easeInOutCubic(t01)
       } else {
         entranceR = 1
       }
 
+      // ── update cells ──
+      const cells = cellsRef.current
       for (let i = 0; i < cells.length; i++) {
         const c = cells[i]
         const desX =
@@ -415,32 +516,22 @@ export default function VygrIntro({
           (1 + c.ar * Math.sin(tNow * c.fr * 2 * Math.PI + c.phr)) *
           entranceR
         const desW = c.hw
-        // smooth pursuit
-        c.x += (desX - c.x) * 0.08
-        c.y += (desY - c.y) * 0.08
+        c.x += (desX - c.x) * 0.07
+        c.y += (desY - c.y) * 0.07
         c.r += (desR - c.r) * 0.06
         c.w += (desW - c.w) * 0.05
       }
 
-      // ── render field cells ──
-      if (tNow >= TYPEWRITER_END - 0.1) {
+      // ── render field ──
+      if (entranceR > 0.01) {
         const textGrid = textGridRef.current
-        // overall fill ramps in during expansion
-        const fill =
-          tNow < TYPEWRITER_END
-            ? 0
-            : tNow < EXPANSION_END
-              ? easeInOutCubic(
-                  (tNow - TYPEWRITER_END) / (EXPANSION_END - TYPEWRITER_END)
-                )
-              : 1
         for (let r = 0; r < rows; r++) {
           for (let c = 0; c < cols; c++) {
             const nx = c / cols
             const ny = r / rows
             const b = fieldAt(nx, ny, cells, tNow)
             const shimmer = Math.sin(c * 13.7 + r * 7.3 + tNow * 3) * 0.04
-            const beff = (b + shimmer) * fill
+            const beff = b + shimmer
             if (beff < threshold) continue
             const ch = textGrid[r * cols + c]
             if (!ch || !ch.trim()) continue
@@ -449,24 +540,20 @@ export default function VygrIntro({
         }
       }
 
-      // ── overlay typewriter on top during stage 0 (and fading during stage 1) ──
+      // ── overlay typewriter (locked + fading) ──
       if (tNow < EXPANSION_END) {
         const row = Math.floor(rows / 2)
-        const chars = typewriterChars(Math.min(tNow, TYPEWRITER_END), cols)
-        // during expansion, fade typewriter by blanking randomly
-        const fadeOut =
-          tNow > TYPEWRITER_END
-            ? smoothstep(
-                (tNow - TYPEWRITER_END) / (EXPANSION_END - TYPEWRITER_END)
-              )
-            : 0
+        const chars = buildTypewriterFrame(tNow, cols)
         for (let i = 0; i < chars.length; i++) {
           const { col, ch } = chars[i]
           if (col < 0 || col >= cols) continue
-          if (fadeOut > 0 && Math.random() < fadeOut) continue
           buf[row * cols + col] = ch
         }
       }
+
+      // ── hover stagger pass ──
+      const cur = cursorRef.current
+      applyHoverPass(buf, cols, rows, cur.x, cur.y, cur.moveTime, tNow)
 
       renderGrid(cols, rows, buf, grid)
     }
@@ -475,8 +562,11 @@ export default function VygrIntro({
     return () => {
       cancelAnimationFrame(raf)
       ro.disconnect()
+      cont.removeEventListener("mousemove", handleMouseMove)
+      cont.removeEventListener("mouseleave", handleMouseLeave)
+      cont.removeEventListener("touchmove", handleTouchMove)
+      cont.removeEventListener("touchend", handleTouchEnd)
       cont.removeEventListener("click", handleClick)
-      cont.removeEventListener("touchend", handleClick)
     }
   }, [text, fontFamily, fontWeight, fontSize, lineHeight, threshold])
 
@@ -490,10 +580,9 @@ export default function VygrIntro({
         backgroundColor,
         color,
         overflow: "hidden",
-        cursor: "pointer",
+        cursor: "default",
         userSelect: "none",
         WebkitUserSelect: "none",
-        touchAction: "none",
       }}
     >
       <div
