@@ -21,6 +21,7 @@ const TYPEWRITER_PHRASE =
 // ── hover (mirrors old VygrText behavior) ──────────────────────────────
 const HOVER_SCRAMBLE_WINDOW = 0.55 // s per char
 const HOVER_CHAR_STAGGER = 0.067 // s between successive chars in a word
+const HOVER_SCRAMBLE_TICK = 0.08 // s between glyph re-rolls (~12.5fps)
 
 // ── formations ─────────────────────────────────────────────────────────
 
@@ -291,6 +292,8 @@ type HoverScramble = {
   row: number
   startCol: number
   length: number
+  glyphs: string[]
+  lastRoll: number
 }
 
 // ── component ──────────────────────────────────────────────────────────
@@ -585,11 +588,20 @@ export default function VygrIntro({
             if (key !== lastHoveredKeyRef.current) {
               lastHoveredKeyRef.current = key
               if (!scramblesRef.current.has(key)) {
+                const glyphs: string[] = new Array(length)
+                for (let g = 0; g < length; g++) {
+                  glyphs[g] =
+                    SCRAMBLE_POOL[
+                      Math.floor(Math.random() * SCRAMBLE_POOL.length)
+                    ]
+                }
                 scramblesRef.current.set(key, {
                   start: tNow,
                   row,
                   startCol: s,
                   length,
+                  glyphs,
+                  lastRoll: tNow,
                 })
               }
             }
@@ -608,6 +620,9 @@ export default function VygrIntro({
           scramblesRef.current.delete(key)
           continue
         }
+        // throttled glyph re-roll (only chars currently scrambling get new glyphs)
+        const shouldRoll = tNow - sc.lastRoll >= HOVER_SCRAMBLE_TICK
+        if (shouldRoll) sc.lastRoll = tNow
         for (let i = 0; i < sc.length; i++) {
           const c = sc.startCol + i
           const idx = sc.row * cols + c
@@ -616,8 +631,13 @@ export default function VygrIntro({
           const scStart = i * HOVER_CHAR_STAGGER
           const scEnd = scStart + HOVER_SCRAMBLE_WINDOW
           if (elapsed >= scStart && elapsed < scEnd) {
-            buf[idx] =
-              SCRAMBLE_POOL[Math.floor(Math.random() * SCRAMBLE_POOL.length)]
+            if (shouldRoll) {
+              sc.glyphs[i] =
+                SCRAMBLE_POOL[
+                  Math.floor(Math.random() * SCRAMBLE_POOL.length)
+                ]
+            }
+            buf[idx] = sc.glyphs[i]
           }
         }
       }
