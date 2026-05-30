@@ -351,7 +351,8 @@ export default function VygrIntro({
       const lineH = probeRect.height / 2
       cont.removeChild(probe)
       const rect = cont.getBoundingClientRect()
-      const cols = Math.max(8, Math.floor(rect.width / charW))
+      // 1-col safety margin to absorb sub-pixel rounding (mobile especially)
+      const cols = Math.max(8, Math.floor(rect.width / charW) - 1)
       const rows = Math.max(4, Math.floor(rect.height / lineH))
       dimsRef.current = { cols, rows }
       textGridRef.current = buildTextGrid(cols, rows, text)
@@ -360,6 +361,10 @@ export default function VygrIntro({
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(cont)
+    // re-measure after web fonts swap in (cheap insurance against metric change)
+    if (typeof document !== "undefined" && document.fonts) {
+      document.fonts.ready.then(() => measure())
+    }
 
     assignHomes(cellsRef.current, FORMATIONS[0])
     startTimeRef.current = performance.now()
