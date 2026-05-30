@@ -15,7 +15,7 @@ const HOLD_DUR = 0.35
 const EXPANSION_END = 6.2
 const CYCLE_INTERVAL = 4.0
 
-const TYPEWRITER_PHRASE =
+const DEFAULT_TYPEWRITER_PHRASE =
   "FOR MILLENNIA, THE HUMAN MIND HAS BEEN CONSTRAINED BY THE FRAGILE GEOMETRY OF THE SKULL."
 
 // ── hover (mirrors old VygrText behavior) ──────────────────────────────
@@ -307,6 +307,7 @@ interface VygrIntroProps {
   fontSize?: number
   lineHeight?: number
   threshold?: number
+  typewriterPhrase?: string
 }
 
 export default function VygrIntro({
@@ -318,6 +319,7 @@ export default function VygrIntro({
   fontSize = 14,
   lineHeight = 1.0,
   threshold = 0.5,
+  typewriterPhrase = DEFAULT_TYPEWRITER_PHRASE,
 }: VygrIntroProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const gridRef = useRef<HTMLDivElement | null>(null)
@@ -408,7 +410,7 @@ export default function VygrIntro({
       tNow: number,
       cols: number
     ): { col: number; ch: string }[] => {
-      const phrase = TYPEWRITER_PHRASE
+      const phrase = typewriterPhrase
       const totalChars = phrase.length
       const charDur = TYPEWRITER_END / (totalChars + 4)
       const scrambleDur = charDur * 2.2
@@ -660,7 +662,7 @@ export default function VygrIntro({
       cont.removeEventListener("touchend", handleTouchEnd)
       cont.removeEventListener("click", handleClick)
     }
-  }, [text, fontFamily, fontWeight, fontSize, lineHeight, threshold])
+  }, [text, fontFamily, fontWeight, fontSize, lineHeight, threshold, typewriterPhrase])
 
   return (
     <div

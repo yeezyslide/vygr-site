@@ -41,6 +41,11 @@ export default function Home() {
           lineHeight={1.0}
           threshold={0.42}
           backgroundColor="transparent"
+          typewriterPhrase={
+            isMobile
+              ? "FOR MILLENNIA, THE HUMAN MIND HAS BEEN CONSTRAINED"
+              : "FOR MILLENNIA, THE HUMAN MIND HAS BEEN CONSTRAINED BY THE FRAGILE GEOMETRY OF THE SKULL."
+          }
         />
       </div>
     </main>
